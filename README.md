@@ -36,9 +36,9 @@ start to feel like a grade.
 ### 1. Create the org and two repos
 
 ```bash
-gh repo create innowise-ai-course/course-ci --public   --source=./course-ci --push
-gh repo create innowise-ai-course/student-template --private --source=./student-template --push
-gh api -X PATCH repos/innowise-ai-course/student-template -F is_template=true
+gh repo create AIEngineeringCourse/course-ci --public   --source=./course-ci --push
+gh repo create AIEngineeringCourse/student-template --private --source=./student-template --push
+gh api -X PATCH repos/AIEngineeringCourse/student-template -F is_template=true
 ```
 
 `course-ci` is **public** on purpose: a private action shared across repos runs
@@ -54,13 +54,14 @@ git -C course-ci tag v1 && git -C course-ci push --tags
 
 ### 2. Point the template at your org
 
-In `student-template/.github/workflows/ci.yml`, replace `INNOWISE_ORG` with your
-org or username. Do this **before** creating student repos.
+`student-template/.github/workflows/ci.yml` already points at
+`AIEngineeringCourse/course-ci@v1`. If you fork this setup for another org,
+change that reference **before** creating student repos.
 
 ### 3. Create student repos
 
 ```bash
-./create_student_repos.sh innowise-ai-course students.txt
+./create_student_repos.sh AIEngineeringCourse students.txt
 ```
 
 Idempotent — safe to re-run when someone joins.
@@ -81,7 +82,7 @@ Verify before enabling the schedule:
 export NOTION_TOKEN=... GITHUB_TOKEN=... \
        NOTION_STUDENTS_DB=... NOTION_ASSIGNMENTS_DB=...
 python notion_sync.py --verify                          # prints schema + students
-python notion_sync.py --org innowise-ai-course --dry-run # prints intended writes
+python notion_sync.py --org AIEngineeringCourse --dry-run # prints intended writes
 ```
 
 `--verify` exists because the database IDs are the easiest thing to get wrong.

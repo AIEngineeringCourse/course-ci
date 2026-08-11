@@ -80,6 +80,10 @@ class Result:
     status: str          # pass | warn | fail | skip
     detail: str = ""
     items: list[str] = field(default_factory=list)
+    # Render items as one fenced code block instead of a bullet each. Needed for
+    # compiler output, where leading indentation is meaningful: as bullets, the
+    # caret alignment line turns into a code box that looks empty.
+    block: bool = False
 
 
 ICON = {"pass": "✅", "warn": "⚠️", "fail": "❌", "skip": "➖"}
@@ -187,9 +191,14 @@ def check_compile(task_dir: Path) -> Result:
     proc = subprocess.run([sys.executable, "-m", "py_compile", *py],
                           capture_output=True, text=True)
     if proc.returncode != 0:
-        lines = [l for l in (proc.stderr or "").splitlines() if l.strip()][:12]
+        # Absolute runner paths (/home/runner/work/repo/repo/...) are noise to a
+        # student reading this on the PR; show the path relative to the checkout.
+        cwd = os.getcwd().rstrip("/") + "/"
+        lines = [l.replace(cwd, "")
+                 for l in (proc.stderr or "").splitlines() if l.strip()][:12]
         return Result("Python syntax", "fail",
-                      "Code does not compile — this would fail before anything ran.", lines)
+                      "Code does not compile — this would fail before anything ran.",
+                      lines, block=True)
     return Result("Python syntax", "pass", f"{len(py)} file(s) compile cleanly.")
 
 
@@ -352,8 +361,13 @@ def render(results: list[Result], task_key: str | None, branch: str,
         lines += ["", "#### Details", ""]
         for r in detailed:
             lines.append(f"**{r.name}**")
-            for it in r.items:
-                lines.append(f"- `{it}`" if ":" in it else f"- {it}")
+            if r.block:
+                # One fenced block: indentation and caret alignment survive, and
+                # a bullet's 4-space rule cannot swallow the lines.
+                lines += ["", "```text", *r.items, "```"]
+            else:
+                for it in r.items:
+                    lines.append(f"- `{it}`" if ":" in it else f"- {it}")
             lines.append("")
 
     lines += ["", "---",

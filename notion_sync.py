@@ -16,8 +16,8 @@ USAGE
     export NOTION_ASSIGNMENTS_DB=...   # 32-hex database id
 
     python notion_sync.py --verify                 # check config, write nothing
-    python notion_sync.py --org innowise-ai-course --dry-run
-    python notion_sync.py --org innowise-ai-course
+    python notion_sync.py --org AIEngineeringCourse --dry-run
+    python notion_sync.py --org AIEngineeringCourse
 
 Run it from a workflow_dispatch or a cron in your own repo, or locally before a
 review session.
