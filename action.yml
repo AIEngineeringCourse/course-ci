@@ -1,0 +1,77 @@
+name: "AI Course tier-one checks"
+description: "Static submission checks for the Innowise AI Engineering course. No API keys, never runs student code."
+inputs:
+  branch:
+    description: "Submission branch (use github.head_ref)"
+    required: true
+  root:
+    description: "Repository root to scan"
+    default: "."
+  fail-on-warn:
+    description: "Treat warnings as failures"
+    default: "false"
+  comment-on-pr:
+    description: "Post the summary as a PR comment"
+    default: "true"
+  github-token:
+    description: "Token for the PR comment (secrets.GITHUB_TOKEN)"
+    default: ""
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install check dependencies
+      shell: bash
+      run: pip install --quiet -r "${{ github.action_path }}/requirements.txt"
+
+    - name: Run tier-one checks
+      id: checks
+      shell: bash
+      # Branch name and author are attacker-controlled - a student picks their
+      # own branch name. They go through env, never straight into the shell,
+      # or a branch called `x$(...)` executes arbitrary code on the runner.
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BRANCH: ${{ inputs.branch }}
+        ROOT: ${{ inputs.root }}
+        AUTHOR: ${{ github.event.pull_request.user.login }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
+      run: |
+        extra=()
+        [ "$FAIL_ON_WARN" = "true" ] && extra+=(--fail-on-warn)
+        python "$ACTION_PATH/check.py" \
+          --branch "$BRANCH" \
+          --root "$ROOT" \
+          --manifest "$ACTION_PATH/tasks.yml" \
+          --author "$AUTHOR" \
+          --pr "$PR_NUMBER" \
+          --out ci_result.json \
+          --summary-out ci_summary.md \
+          "${extra[@]}"
+
+    - name: Comment on the pull request
+      if: always() && inputs.comment-on-pr == 'true' && inputs.github-token != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        if [ -f ci_summary.md ]; then
+          gh pr comment "$PR_NUMBER" --body-file ci_summary.md || \
+            echo "::warning::could not post PR comment"
+        fi
+
+    - name: Upload result
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ci-result
+        path: |
+          ci_result.json
+          ci_summary.md
+        retention-days: 30
+        if-no-files-found: ignore

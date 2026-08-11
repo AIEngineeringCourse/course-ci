@@ -1,0 +1,154 @@
+# Per-task manifest for tier-one CI checks.
+#
+# This is the ONLY file you need to edit when a task changes.
+# Keys must match the branch convention: phaseN/taskM  (from phaseN/taskM-slug)
+#
+# Every task automatically gets: secret scan, .gitignore check, dead-model scan,
+# py_compile, and error-only lint. The entries below add the task-specific parts.
+#
+# Fields:
+#   name        human label shown in the PR comment
+#   dir_glob    where the work lives (falls back to phaseN/taskM* if omitted)
+#   required    files that must exist inside dir_glob (glob patterns)
+#   notes       written deliverable check:
+#                 file, min_words, min_items, item_label
+#   golden_set  dataset validation: file, min_cases, min_per_category
+#
+# Tasks with no entry still get all the automatic checks — they just skip
+# structure/notes/golden-set validation. Adding an entry is always optional.
+
+tasks:
+
+  # ----------------------------------------------------------------- Phase 1
+  # TODO(Misha): fill `required` for Phase 1 tasks 1-4 from their Notion pages.
+  # Left deliberately loose so nothing fails spuriously before you confirm.
+  phase1/task1:
+    name: "Ph1 Task 1 — First API calls"
+    required: ["*.py", "README.md"]
+
+  phase1/task2:
+    name: "Ph1 Task 2 — Multi-turn chatbot"
+    required: ["*.py", "README.md"]
+
+  phase1/task3:
+    name: "Ph1 Task 3 — Prompt engineering"
+    required: ["*.py", "README.md"]
+
+  phase1/task4:
+    name: "Ph1 Task 4 — Debug the broken chatbot"
+    required: ["*.py"]
+    notes:
+      # Ph2 Task 3 states its bug count; this one should too (backlog item).
+      # Set min_items once you have added the count to the task page.
+      file: "bugs.md"
+      min_words: 200
+      min_items: 3
+      item_label: "bug"
+
+  phase1/task5:
+    name: "Ph1 Task 5 — Token budget tracker"
+    required: ["*.py", "README.md"]
+
+  # ----------------------------------------------------------------- Phase 2
+  phase2/task1:
+    name: "Ph2 Task 1 — Rewrite the summarizer with LCEL"
+    required: ["*.py", "README.md"]
+
+  phase2/task2:
+    name: "Ph2 Task 2 — RAG document Q&A bot"
+    required:
+      - "ingest.py"
+      - "chain.py"
+      - "eval.py"
+      - "golden_set.json"
+      - "README.md"
+    golden_set:
+      file: "golden_set.json"
+      min_cases: 15
+      min_per_category:
+        happy_path: 6
+        edge_case: 3
+        out_of_scope: 3
+        ambiguous: 2
+
+  phase2/task3:
+    name: "Ph2 Task 3 — Debug the broken RAG pipeline"
+    required: ["*.py", "bugs.md"]
+    notes:
+      file: "bugs.md"
+      min_words: 300
+      min_items: 5          # the task page states there are 5 seeded bugs
+      item_label: "bug"
+
+  phase2/task4:
+    name: "Ph2 Task 4 — Multi-document Q&A with citations"
+    required: ["*.py", "README.md"]
+
+  phase2/task5:
+    name: "Ph2 Task 5 — Structured output classifier"
+    required: ["classify.py", "README.md"]
+
+  phase2/task6:
+    name: "Ph2 Task 6 — LangChain memory"
+    required: ["chatbot_memory.py", "README.md"]
+
+  # ----------------------------------------------------------------- Phase 3
+  # TODO(Misha): add entries as Phase 3 tasks get submission trees.
+
+  # ----------------------------------------------------------------- Phase 4
+  phase4/task1:
+    name: "Ph4 Task 1 — SSE streaming endpoint"
+    required: ["*.py", "README.md"]
+
+  phase4/task2:
+    name: "Ph4 Task 2 — Trace an inefficiency"
+    required: ["*.md"]
+    notes:
+      file: "*.md"
+      min_words: 250
+
+  phase4/task3:
+    name: "Ph4 Task 3 — Error handling and backoff"
+    required: ["*.py", "README.md"]
+
+  phase4/task4:
+    name: "Ph4 Task 4 — Evaluation pipeline"
+    required:
+      - "audit.md"
+      - "golden_dataset_v2.json"
+      - "deterministic.py"
+      - "retrieval_metrics.py"
+      - "judges.py"
+      - "run_eval.py"
+      - "regression_report.md"
+      - "analysis.md"
+      - "README.md"
+    notes:
+      file: "analysis.md"
+      min_words: 600
+    golden_set:
+      file: "golden_dataset_v2.json"
+      min_cases: 20
+      min_per_category:
+        happy_path: 8
+        edge_case: 5
+        out_of_scope: 4
+        ambiguous: 3
+
+  phase4/task5:
+    name: "Ph4 Task 5 — Cost tracking and model routing"
+    required:
+      - "cost_tracker.py"
+      - "routing.py"
+      - "caching.py"
+      - "tasks.json"
+      - "cost_report.md"
+      - "analysis.md"
+      - "README.md"
+    notes:
+      file: "analysis.md"
+      min_words: 500
+
+  phase4/task6:
+    name: "Ph4 Task 6 — End-to-end capstone"
+    required: ["*.py", "README.md"]

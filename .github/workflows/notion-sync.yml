@@ -1,0 +1,27 @@
+name: Sync CI results to Notion
+
+# Runs in THIS repo only, so the Notion token never reaches a student repo.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7,15 * * 1-5"   # twice each weekday, before your review sessions
+
+concurrency:
+  group: notion-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Sync
+        env:
+          GITHUB_TOKEN: ${{ secrets.COURSE_READ_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_STUDENTS_DB: ${{ secrets.NOTION_STUDENTS_DB }}
+          NOTION_ASSIGNMENTS_DB: ${{ secrets.NOTION_ASSIGNMENTS_DB }}
+        run: python notion_sync.py --org ${{ github.repository_owner }}
