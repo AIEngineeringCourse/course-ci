@@ -3,6 +3,12 @@ name: Sync CI results to Notion
 # Runs in THIS repo only, so the Notion token never reaches a student repo.
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "verify = check tokens/schema only; dry-run = print intended writes; live = write to Notion"
+        type: choice
+        default: verify        # safe default: a bare dispatch never writes
+        options: [verify, dry-run, live]
   # Disabled until the Notion secrets are set - otherwise this fails twice every
   # weekday and emails you each time. Uncomment once NOTION_TOKEN,
   # NOTION_STUDENTS_DB, NOTION_ASSIGNMENTS_DB and COURSE_READ_TOKEN exist and a
@@ -28,4 +34,14 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_STUDENTS_DB: ${{ secrets.NOTION_STUDENTS_DB }}
           NOTION_ASSIGNMENTS_DB: ${{ secrets.NOTION_ASSIGNMENTS_DB }}
-        run: python notion_sync.py --org ${{ github.repository_owner }}
+          # Via env, never interpolated straight into the shell.
+          # A scheduled run has no inputs, so MODE falls back to live.
+          MODE: ${{ inputs.mode || 'live' }}
+          ORG: ${{ github.repository_owner }}
+        run: |
+          case "$MODE" in
+            verify)  python notion_sync.py --verify ;;
+            dry-run) python notion_sync.py --org "$ORG" --dry-run ;;
+            live)    python notion_sync.py --org "$ORG" ;;
+            *) echo "::error::unknown mode: $MODE"; exit 1 ;;
+          esac
