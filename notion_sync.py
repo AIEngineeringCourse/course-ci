@@ -41,7 +41,9 @@ GITHUB_API = "https://api.github.com"
 PROP_STUDENT_NAME = "Student"
 PROP_STUDENT_GITHUB = "Github"
 PROP_ASSIGNMENT_STUDENT = "Student"
-PROP_ASSIGNMENT_TASK = "Task"
+# Either the title/rich_text naming the task ("[Ph. 2] Task 5 — ...") or a
+# relation to task pages; the lookup below handles both.
+PROP_ASSIGNMENT_TASK = "Assignment"
 PROP_CI = "CI"          # optional select/rich_text property; skipped if absent
 
 STATUS_LABEL = {"pass": "✅ CI passed", "warn": "⚠️ CI warnings",
@@ -377,13 +379,18 @@ def main() -> int:
             rel = props.get(PROP_ASSIGNMENT_STUDENT, {})
             if student["page_id"] not in plain(rel):
                 continue
-            task_rel = plain(props.get(PROP_ASSIGNMENT_TASK, {})).split(",")
-            for tid in filter(None, task_rel):
-                if tid not in title_cache:
-                    title_cache[tid] = page_title(tid, nt)
-                if task_key_from_title(title_cache[tid]) == key:
-                    target = row
-                    break
+            task_prop = props.get(PROP_ASSIGNMENT_TASK, {})
+            if task_prop.get("type") == "relation":
+                # Relation: follow each linked page and read its title.
+                for tid in filter(None, plain(task_prop).split(",")):
+                    if tid not in title_cache:
+                        title_cache[tid] = page_title(tid, nt)
+                    if task_key_from_title(title_cache[tid]) == key:
+                        target = row
+                        break
+            elif task_key_from_title(plain(task_prop)) == key:
+                # title / rich_text / select: the property names the task itself.
+                target = row
             if target:
                 break
 
