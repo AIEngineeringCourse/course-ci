@@ -74,6 +74,55 @@ def notion(path: str, token: str, payload: dict | None = None,
                 payload=payload, method=method)
 
 
+DB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def normalise_db_id(value: str) -> str:
+    """Accept a raw 32-hex id, a dashed uuid, or a full database URL.
+
+    Notion answers 404 for a wrong id and for a database the integration cannot
+    see, so a malformed id is indistinguishable from a permissions problem in
+    the response. Catching the shape here keeps that ambiguity out of the way -
+    and stops a mistyped value being sent upstream and echoed back in an error.
+    """
+    v = value.strip()
+    if v.startswith("http"):                       # full URL: take the last path
+        v = urllib.parse.urlparse(v).path.rsplit("/", 1)[-1]
+    v = v.split("?", 1)[0]                         # drop ?v=<view-id>
+    v = v.replace("-", "").lower()
+    return v
+
+
+def check_db_id(name: str, value: str) -> str | None:
+    """Return an error string if the value cannot be a database id."""
+    v = normalise_db_id(value)
+    if DB_ID_RE.match(v):
+        return None
+    if value.strip().startswith(("ntn_", "secret_")):
+        return (f"{name} looks like an integration TOKEN, not a database id. "
+                "The id is the 32-hex string in the database's own URL.")
+    return (f"{name} is not a 32-hex database id (got {len(v)} chars after "
+            "normalising). Copy the part of the database URL before '?v='.")
+
+
+def list_visible_databases(token: str) -> list[tuple[str, str]]:
+    """Every database this integration can actually see, as (title, id)."""
+    out, cursor = [], None
+    while True:
+        payload = {"filter": {"property": "object", "value": "database"},
+                   "page_size": 100}
+        if cursor:
+            payload["start_cursor"] = cursor
+        res = notion("/search", token, payload=payload)
+        for r in res.get("results", []):
+            title = "".join(t.get("plain_text", "")
+                            for t in r.get("title", [])) or "(untitled)"
+            out.append((title, r.get("id", "").replace("-", "")))
+        if not res.get("has_more"):
+            return out
+        cursor = res.get("next_cursor")
+
+
 def github(path: str, token: str) -> dict | list:
     return http(f"{GITHUB_API}{path}", token,
                 extra_headers={"Accept": "application/vnd.github+json",
@@ -230,7 +279,40 @@ def main() -> int:
         print("Missing environment variables: " + ", ".join(missing))
         return 2
 
+    # Accept a raw id, a dashed uuid, or a pasted database URL.
+    students_db = normalise_db_id(students_db)
+    assign_db = normalise_db_id(assign_db)
+
     if args.verify:
+        # Shape-check the ids before spending a request on them.
+        shape_errors = [e for e in (check_db_id("NOTION_STUDENTS_DB", students_db),
+                                    check_db_id("NOTION_ASSIGNMENTS_DB", assign_db))
+                        if e]
+        for e in shape_errors:
+            print(f"  ! {e}")
+
+        try:
+            visible = list_visible_databases(nt)
+        except RuntimeError as exc:
+            print(f"  ! /search failed: {exc.args[0].splitlines()[0]}")
+            visible = []
+
+        print(f"Databases shared with this integration: {len(visible)}")
+        for title, db_id in visible:
+            print(f"  {db_id}  {title}")
+        if not visible:
+            print("  (none — open each database as a full page, then "
+                  "••• → Connections → connect your integration. Nothing else "
+                  "below can work until this list is non-empty.)")
+        for label, value in (("NOTION_STUDENTS_DB", students_db),
+                             ("NOTION_ASSIGNMENTS_DB", assign_db)):
+            norm = normalise_db_id(value)
+            if visible and norm not in {i for _, i in visible}:
+                print(f"  ! {label} is not in the list above — wrong id, or "
+                      "that database is not shared with this integration.")
+        if shape_errors:
+            return 2
+
         print("Notion — Students database")
         db = notion(f"/databases/{students_db}", nt)
         print("  properties:", ", ".join(db.get("properties", {})))
