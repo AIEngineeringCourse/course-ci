@@ -313,12 +313,28 @@ def main() -> int:
         if shape_errors:
             return 2
 
+        def show_props(props: dict) -> None:
+            # Types matter: the task lookup expects a relation it can follow to
+            # a page, so a same-named title property would silently match zero.
+            for pname, pdef in sorted(props.items()):
+                print(f"    {pdef.get('type', '?'):<14} {pname}")
+
         print("Notion — Students database")
         db = notion(f"/databases/{students_db}", nt)
-        print("  properties:", ", ".join(db.get("properties", {})))
+        show_props(db.get("properties", {}))
+        for const, label in ((PROP_STUDENT_NAME, "PROP_STUDENT_NAME"),
+                             (PROP_STUDENT_GITHUB, "PROP_STUDENT_GITHUB")):
+            if const not in db.get("properties", {}):
+                print(f"  ! {label} = '{const}' does not exist on this database")
         print("Notion — Assignments database")
         db2 = notion(f"/databases/{assign_db}", nt)
         props = db2.get("properties", {})
+        show_props(props)
+        for const, label in ((PROP_ASSIGNMENT_STUDENT, "PROP_ASSIGNMENT_STUDENT"),
+                             (PROP_ASSIGNMENT_TASK, "PROP_ASSIGNMENT_TASK")):
+            if const not in props:
+                print(f"  ! {label} = '{const}' does not exist — the sync will "
+                      "match nothing until this constant is corrected")
         print("  properties:", ", ".join(props))
         print(f"  '{PROP_CI}' property present:", PROP_CI in props,
               "(optional — comments are used regardless)")
