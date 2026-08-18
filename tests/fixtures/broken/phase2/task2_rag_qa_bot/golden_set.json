@@ -1,0 +1,33 @@
+[
+  {
+    "question": "What is the refund window?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "30 days"
+    ],
+    "expected_source": "policy.md"
+  },
+  {
+    "question": "What is the refund window?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "30 days"
+    ],
+    "expected_source": "policy.md"
+  },
+  {
+    "question": "How do I reset my password?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "settings page"
+    ],
+    "expected_source": "faq.md"
+  },
+  {
+    "question": "Who won the 2024 election?",
+    "category": "out_of_scope"
+  }
+]

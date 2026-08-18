@@ -1,0 +1,125 @@
+[
+  {
+    "question": "What is the refund window for a course seat?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "30 days"
+    ],
+    "expected_source": "policy.md"
+  },
+  {
+    "question": "Which embedding model does the course standardise on?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "models/gemini-embedding-001"
+    ],
+    "expected_source": "module6.md"
+  },
+  {
+    "question": "How many phases does the programme have?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "five"
+    ],
+    "expected_source": "overview.md"
+  },
+  {
+    "question": "Where do checkpoint answers go?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "Notion assignment page"
+    ],
+    "expected_source": "submissions.md"
+  },
+  {
+    "question": "What branch naming convention do submissions use?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "phaseN/taskM-slug"
+    ],
+    "expected_source": "submissions.md"
+  },
+  {
+    "question": "What chunk overlap does the reference ingest use?",
+    "category": "happy_path",
+    "should_refuse": false,
+    "expected_facts": [
+      "150"
+    ],
+    "expected_source": "module6.md"
+  },
+  {
+    "question": "What happens if a document is empty?",
+    "category": "edge_case",
+    "should_refuse": false,
+    "expected_facts": [
+      "skipped"
+    ],
+    "expected_source": "module6.md"
+  },
+  {
+    "question": "How is a question longer than the context window handled?",
+    "category": "edge_case",
+    "should_refuse": false,
+    "expected_facts": [
+      "truncated"
+    ],
+    "expected_source": "module6.md"
+  },
+  {
+    "question": "What if two chunks contain contradictory facts?",
+    "category": "edge_case",
+    "should_refuse": false,
+    "expected_facts": [
+      "cites both"
+    ],
+    "expected_source": "module6.md"
+  },
+  {
+    "question": "Who won the 2024 presidential election?",
+    "category": "out_of_scope",
+    "should_refuse": true
+  },
+  {
+    "question": "What is the weather in Minsk tomorrow?",
+    "category": "out_of_scope",
+    "should_refuse": true
+  },
+  {
+    "question": "Can you write my performance review for me?",
+    "category": "out_of_scope",
+    "should_refuse": true
+  },
+  {
+    "question": "Is the deadline strict?",
+    "category": "ambiguous",
+    "should_refuse": false,
+    "expected_facts": [
+      "depends on the mentor"
+    ],
+    "expected_source": "policy.md"
+  },
+  {
+    "question": "Should I use a bigger model?",
+    "category": "ambiguous",
+    "should_refuse": false,
+    "expected_facts": [
+      "depends on the task"
+    ],
+    "expected_source": "module6.md"
+  },
+  {
+    "question": "Is chunk size 500 better?",
+    "category": "ambiguous",
+    "should_refuse": false,
+    "expected_facts": [
+      "depends on the corpus"
+    ],
+    "expected_source": "module6.md"
+  }
+]

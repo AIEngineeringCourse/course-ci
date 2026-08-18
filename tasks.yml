@@ -24,15 +24,15 @@ tasks:
   # Left deliberately loose so nothing fails spuriously before you confirm.
   phase1/task1:
     name: "Ph1 Task 1 — First API calls"
-    required: ["*.py", "README.md"]
+    required: ["*.py"]
 
   phase1/task2:
     name: "Ph1 Task 2 — Multi-turn chatbot"
-    required: ["*.py", "README.md"]
+    required: ["*.py"]
 
   phase1/task3:
     name: "Ph1 Task 3 — Prompt engineering"
-    required: ["*.py", "README.md"]
+    required: ["*.py"]
 
   phase1/task4:
     name: "Ph1 Task 4 — Debug the broken chatbot"
@@ -47,7 +47,7 @@ tasks:
 
   phase1/task5:
     name: "Ph1 Task 5 — Token budget tracker"
-    required: ["*.py", "README.md"]
+    required: ["*.py"]
 
   # ----------------------------------------------------------------- Phase 2
   phase2/task1:
