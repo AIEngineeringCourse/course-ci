@@ -9,12 +9,11 @@ on:
         type: choice
         default: verify        # safe default: a bare dispatch never writes
         options: [verify, dry-run, live]
-  # Disabled until the Notion secrets are set - otherwise this fails twice every
-  # weekday and emails you each time. Uncomment once NOTION_TOKEN,
-  # NOTION_STUDENTS_DB, NOTION_ASSIGNMENTS_DB and COURSE_READ_TOKEN exist and a
-  # manual run (workflow_dispatch) has succeeded.
-  # schedule:
-  #   - cron: "0 7,15 * * 1-5"   # twice each weekday, before your review sessions
+  # Enabled 2026-08-19, after verify and dry-run both passed against the live
+  # workspace. A scheduled run supplies no inputs, so MODE falls back to 'live'
+  # and this writes to Notion - that is intended here.
+  schedule:
+    - cron: "0 7,15 * * 1-5"   # twice each weekday, before your review sessions
 
 concurrency:
   group: notion-sync
