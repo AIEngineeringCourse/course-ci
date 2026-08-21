@@ -184,6 +184,11 @@ def query_all(db_id: str, token: str, payload: dict | None = None) -> list[dict]
         cursor = res["next_cursor"]
 
 
+def student_login(field_value: str) -> str:
+    """The bare login from a Github field: a handle or a full profile URL."""
+    return field_value.strip().rstrip("/").split("/")[-1].lower()
+
+
 def load_students(token: str, db: str) -> dict[str, dict]:
     """Map lowercased GitHub login -> {page_id, name}."""
     out = {}
@@ -192,9 +197,61 @@ def load_students(token: str, db: str) -> dict[str, dict]:
         gh = plain(props.get(PROP_STUDENT_GITHUB, {})).strip()
         name = plain(props.get(PROP_STUDENT_NAME, {})).strip()
         if gh:
-            login = gh.rstrip("/").split("/")[-1].lower()
+            login = student_login(gh)
             out[login] = {"page_id": row["id"], "name": name or login}
     return out
+
+
+def audit_students(token: str, db: str, gh_token: str = "") -> list[str]:
+    """Problems that would silently misroute a student's PRs.
+
+    load_students keys by login, so a handle on two rows collapses to whichever
+    row is read last - the mapping looks fine and quietly points at the wrong
+    person. That is invisible until someone asks why their board is empty.
+    """
+    problems: list[str] = []
+    by_login: dict[str, list[str]] = {}
+
+    for row in query_all(db, token):
+        props = row.get("properties", {})
+        raw = plain(props.get(PROP_STUDENT_GITHUB, {})).strip()
+        name = plain(props.get(PROP_STUDENT_NAME, {})).strip() or "(unnamed row)"
+        if not raw:
+            problems.append(f"{name}: empty '{PROP_STUDENT_GITHUB}' — their PRs can never match")
+            continue
+        by_login.setdefault(student_login(raw), []).append(name)
+
+    for login, names in sorted(by_login.items()):
+        if len(names) > 1:
+            problems.append(
+                f"'{login}' is on {len(names)} rows ({', '.join(names)}) — "
+                "only one of them will ever receive comments")
+        if gh_token:
+            try:
+                github(f"/users/{login}", gh_token)
+            except RuntimeError as exc:
+                # Only a definite 404 is a finding; a rate limit is not.
+                if str(exc.args[0]).startswith("404"):
+                    problems.append(f"'{login}' ({names[0]}) is not a GitHub user")
+    return problems
+
+
+def canonical_assignment_title(key: str) -> str:
+    """phase2/task5 -> '[Ph. 2] Task 5', a title task_key_from_title can read back."""
+    phase, task = key.split("/")
+    return f"[Ph. {phase[len('phase'):]}] Task {task[len('task'):]}"
+
+
+def create_assignment(db_id: str, token: str, student: dict, title: str) -> dict:
+    """A minimal row: title and student only. Status stays the mentor's call."""
+    return notion("/pages", token, {
+        "parent": {"database_id": db_id},
+        "properties": {
+            PROP_ASSIGNMENT_TASK: {
+                "title": [{"type": "text", "text": {"content": title}}]},
+            PROP_ASSIGNMENT_STUDENT: {"relation": [{"id": student["page_id"]}]},
+        },
+    })
 
 
 def page_title(page_id: str, token: str) -> str:
@@ -299,6 +356,11 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--verify", action="store_true",
                     help="Validate tokens and print board schema, then exit.")
+    ap.add_argument("--create-missing", action="store_true",
+                    help="Create an Assignment row when a matched student has a "
+                         "valid phaseN/taskM branch and no row for it. Requires "
+                         "the integration to have Insert content. Pair with "
+                         "--dry-run first to see what it would create.")
     args = ap.parse_args()
 
     nt = os.environ.get("NOTION_TOKEN", "")
@@ -372,6 +434,14 @@ def main() -> int:
         print("  properties:", ", ".join(props))
         print(f"  '{PROP_CI}' property present:", PROP_CI in props,
               "(optional — comments are used regardless)")
+        issues = audit_students(nt, students_db, gt)
+        if issues:
+            print("Students board problems:")
+            for i in issues:
+                print(f"  ! {i}")
+        else:
+            print("Students board: no duplicate or unknown handles.")
+
         students = load_students(nt, students_db)
         print(f"Resolved {len(students)} student(s) with a GitHub handle:")
         for login, s in students.items():
@@ -392,7 +462,21 @@ def main() -> int:
     assignments = query_all(assign_db, nt)
     title_cache: dict[str, str] = {}
 
+    if args.create_missing:
+        # Creating a row means writing the task name into the title property.
+        # On a board where PROP_ASSIGNMENT_TASK is a relation, that shape is
+        # wrong, so refuse up front rather than fail once per PR.
+        schema = notion(f"/databases/{assign_db}", nt).get("properties", {})
+        ptype = schema.get(PROP_ASSIGNMENT_TASK, {}).get("type")
+        if ptype != "title":
+            print(f"--create-missing needs '{PROP_ASSIGNMENT_TASK}' to be the "
+                  f"title property, but it is '{ptype or 'absent'}'. "
+                  "Create the rows by hand, or point PROP_ASSIGNMENT_TASK at "
+                  "the title property.")
+            return 2
+
     matched = 0
+    created = 0
     for pr in prs:
         student = students.get(pr["author"])
         if not student:
@@ -427,8 +511,30 @@ def main() -> int:
                 break
 
         if not target:
-            print(f"  ? no Assignment row for {student['name']} + {key}")
-            continue
+            if not args.create_missing:
+                print(f"  ? no Assignment row for {student['name']} + {key}")
+                continue
+
+            title = canonical_assignment_title(key)
+            # Guard against a runaway: if the title we write does not parse back
+            # to the same key, the next run would not match it and would create
+            # another row - twice a weekday, forever.
+            if task_key_from_title(title) != key:
+                print(f"  ! refusing to create '{title}': it does not read back "
+                      f"as {key}")
+                continue
+            if args.dry_run:
+                print(f"  + would create Assignment '{title}' for {student['name']}")
+                created += 1
+                continue
+            try:
+                target = create_assignment(assign_db, nt, student, title)
+            except RuntimeError as exc:
+                print(f"  ! could not create '{title}': "
+                      f"{str(exc.args[0]).splitlines()[0]}")
+                continue
+            created += 1
+            print(f"  + created Assignment '{title}' for {student['name']}")
 
         label = STATUS_LABEL[pr["status"]]
         body = comment_body(pr["status"], pr)
@@ -460,7 +566,10 @@ def main() -> int:
             if payload:
                 notion(f"/pages/{target['id']}", nt, payload, method="PATCH")
 
-    print(f"\n{matched} assignment(s) {'would be' if args.dry_run else ''} updated.")
+    tense = "would be" if args.dry_run else ""
+    print(f"\n{matched} assignment(s) {tense} updated.")
+    if args.create_missing:
+        print(f"{created} assignment row(s) {tense} created.")
     print("Status was not modified — that stays a mentor decision.")
     return 0
 
