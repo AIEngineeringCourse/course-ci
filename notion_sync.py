@@ -50,6 +50,29 @@ STATUS_LABEL = {"pass": "✅ CI passed", "warn": "⚠️ CI warnings",
                 "fail": "❌ CI failed", "pending": "⏳ CI running",
                 "none": "— no CI result"}
 
+# What the student should do about each verdict. The board comment carries the
+# verdict only - the per-check detail lives on the GitHub PR - so every line
+# that is not "all clear" points back at the PR.
+STATUS_ADVICE = {
+    "pass": "Mentor will check your PR soon.",
+    "warn": "Fix the issues. If you are sure there are no issues, write your mentor.",
+    "fail": "Fix the issues and push again. If you think a check is wrong, write your mentor.",
+    "pending": "Checks are still running. This will update on the next sync.",
+    "none": "No checks have run for the latest commit yet.",
+}
+
+# 'pass' is the only verdict with nothing to act on, so it gets a plain link.
+LINK_LABEL = {"pass": "PR"}
+DEFAULT_LINK_LABEL = "Open the PR for more details"
+
+
+def comment_body(status: str, pr: dict) -> str:
+    link = LINK_LABEL.get(status, DEFAULT_LINK_LABEL)
+    return (f"[ci-sync] {STATUS_LABEL[status]}\n"
+            f"Branch: {pr['branch']}\n"
+            f"{STATUS_ADVICE[status]}\n"
+            f"{link}: {pr['url']}")
+
 
 # --------------------------------------------------------------------------- #
 def http(url: str, token: str, *, extra_headers: dict | None = None,
@@ -239,16 +262,25 @@ def collect_prs(gh_token: str, org: str | None, repos: list[str]) -> list[dict]:
     return prs
 
 
-def existing_ci_comment(page_id: str, token: str) -> str | None:
+def previous_ci_label(page_id: str, token: str) -> str | None:
+    """The verdict from the most recent [ci-sync] comment on this page.
+
+    Notion comments cannot be edited or deleted through the API, so the only
+    way to keep a board readable is to not post in the first place when nothing
+    has changed. Comparing the verdict (rather than the whole body) means a
+    re-push that keeps the same result stays quiet, while pass -> fail speaks up.
+    """
     try:
         res = notion(f"/comments?block_id={page_id}", token)
     except RuntimeError:
+        # Never let a read failure suppress a comment: fall through and post.
         return None
-    for c in res.get("results", []):
+    found = None
+    for c in res.get("results", []):          # ascending: last match is newest
         text = "".join(x["plain_text"] for x in c.get("rich_text", []))
         if text.startswith("[ci-sync]"):
-            return c["id"]
-    return None
+            found = text.splitlines()[0][len("[ci-sync]"):].strip()
+    return found
 
 
 def post_comment(page_id: str, token: str, body: str) -> None:
@@ -399,20 +431,20 @@ def main() -> int:
             continue
 
         label = STATUS_LABEL[pr["status"]]
-        body = (f"[ci-sync] {label}\n"
-                f"PR: {pr['url']}\n"
-                f"Branch: {pr['branch']}\n"
-                f"Mechanical checks only — reasoning still needs review.")
+        body = comment_body(pr["status"], pr)
+
+        # Post only when the verdict changed. Checked before the dry-run bail
+        # so a dry run reports exactly what a live run would do.
+        if previous_ci_label(target["id"], nt) == label:
+            print(f"  = {student['name']} / {key}: unchanged ({label}) — not re-posting")
+            continue
+
         matched += 1
         print(f"  → {student['name']} / {key}: {label}")
 
         if args.dry_run:
             continue
 
-        old = existing_ci_comment(target["id"], nt)
-        if old:
-            # Notion comments are immutable; append a fresh one rather than edit.
-            pass
         post_comment(target["id"], nt, body)
 
         props = target.get("properties", {})
