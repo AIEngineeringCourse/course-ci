@@ -9,6 +9,10 @@ on:
         type: choice
         default: verify        # safe default: a bare dispatch never writes
         options: [verify, dry-run, live]
+      create_missing:
+        description: "Create an Assignment row when a student has none for that task"
+        type: boolean
+        default: false
   # Enabled 2026-08-19, after verify and dry-run both passed against the live
   # workspace. A scheduled run supplies no inputs, so MODE falls back to 'live'
   # and this writes to Notion - that is intended here.
@@ -37,10 +41,16 @@ jobs:
           # A scheduled run has no inputs, so MODE falls back to live.
           MODE: ${{ inputs.mode || 'live' }}
           ORG: ${{ github.repository_owner }}
+          # Scheduled runs carry no inputs, so this is false unless you ask for
+          # it from the Actions tab. Flip the default here only once a
+          # dry-run + create_missing preview looks right.
+          CREATE_MISSING: ${{ inputs.create_missing || false }}
         run: |
+          extra=()
+          [ "$CREATE_MISSING" = "true" ] && extra+=(--create-missing)
           case "$MODE" in
             verify)  python notion_sync.py --verify ;;
-            dry-run) python notion_sync.py --org "$ORG" --dry-run ;;
-            live)    python notion_sync.py --org "$ORG" ;;
+            dry-run) python notion_sync.py --org "$ORG" --dry-run "${extra[@]}" ;;
+            live)    python notion_sync.py --org "$ORG" "${extra[@]}" ;;
             *) echo "::error::unknown mode: $MODE"; exit 1 ;;
           esac
