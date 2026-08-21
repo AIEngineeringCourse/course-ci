@@ -413,7 +413,15 @@ def main() -> int:
             # Types matter: the task lookup expects a relation it can follow to
             # a page, so a same-named title property would silently match zero.
             for pname, pdef in sorted(props.items()):
-                print(f"    {pdef.get('type', '?'):<14} {pname}")
+                ptype = pdef.get("type", "?")
+                line = f"    {ptype:<14} {pname}"
+                # The API can invent a new `select` option but never a `status`
+                # one, so the writable values have to be listed to be usable.
+                if ptype in ("select", "status", "multi_select"):
+                    opts = [o["name"] for o in (pdef.get(ptype) or {}).get("options", [])]
+                    if opts:
+                        line += "   options: " + ", ".join(opts)
+                print(line)
 
         print("Notion — Students database")
         db = notion(f"/databases/{students_db}", nt)
