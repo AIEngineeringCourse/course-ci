@@ -45,6 +45,11 @@ PROP_ASSIGNMENT_STUDENT = "Student"
 # relation to task pages; the lookup below handles both.
 PROP_ASSIGNMENT_TASK = "Assignment"
 PROP_CI = "CI"          # optional select/rich_text property; skipped if absent
+PROP_ASSIGNMENT_STATUS = "Status"
+# Status set on rows the pipeline creates, so a practical submission lands in
+# the mentor's queue rather than looking untouched. Only ever set at creation:
+# once a row exists its Status is the mentor's, never the pipeline's.
+STATUS_ON_CREATE = "Review needed"
 
 STATUS_LABEL = {"pass": "✅ CI passed", "warn": "⚠️ CI warnings",
                 "fail": "❌ CI failed", "pending": "⏳ CI running",
@@ -242,16 +247,31 @@ def canonical_assignment_title(key: str) -> str:
     return f"[Ph. {phase[len('phase'):]}] Task {task[len('task'):]}"
 
 
-def create_assignment(db_id: str, token: str, student: dict, title: str) -> dict:
-    """A minimal row: title and student only. Status stays the mentor's call."""
-    return notion("/pages", token, {
-        "parent": {"database_id": db_id},
-        "properties": {
-            PROP_ASSIGNMENT_TASK: {
-                "title": [{"type": "text", "text": {"content": title}}]},
-            PROP_ASSIGNMENT_STUDENT: {"relation": [{"id": student["page_id"]}]},
-        },
-    })
+def create_assignment(db_id: str, token: str, student: dict, title: str,
+                      status: str | None = None) -> dict:
+    """Title, student, and an opening Status. Nothing else is the pipeline's."""
+    props = {
+        PROP_ASSIGNMENT_TASK: {
+            "title": [{"type": "text", "text": {"content": title}}]},
+        PROP_ASSIGNMENT_STUDENT: {"relation": [{"id": student["page_id"]}]},
+    }
+    if status:
+        props[PROP_ASSIGNMENT_STATUS] = {"status": {"name": status}}
+    return notion("/pages", token,
+                  {"parent": {"database_id": db_id}, "properties": props})
+
+
+def status_option_available(schema: dict, wanted: str) -> bool:
+    """Is `wanted` already defined on the Status property?
+
+    The API can invent a `select` option on write but never a `status` one, so
+    an undefined value fails the whole create. Check instead of discovering it
+    one failed row at a time.
+    """
+    pdef = schema.get(PROP_ASSIGNMENT_STATUS) or {}
+    if pdef.get("type") != "status":
+        return False
+    return wanted in {o["name"] for o in (pdef.get("status") or {}).get("options", [])}
 
 
 def page_title(page_id: str, token: str) -> str:
@@ -483,6 +503,13 @@ def main() -> int:
                   "the title property.")
             return 2
 
+        create_status = STATUS_ON_CREATE if status_option_available(
+            schema, STATUS_ON_CREATE) else None
+        if STATUS_ON_CREATE and not create_status:
+            print(f"  ! '{PROP_ASSIGNMENT_STATUS}' has no '{STATUS_ON_CREATE}' "
+                  "option — creating rows without a status. Add the option in "
+                  "Notion; the API cannot create one.")
+
     matched = 0
     created = 0
     for pr in prs:
@@ -531,18 +558,20 @@ def main() -> int:
                 print(f"  ! refusing to create '{title}': it does not read back "
                       f"as {key}")
                 continue
+            shown = f"'{title}'" + (f" [{create_status}]" if create_status else "")
             if args.dry_run:
-                print(f"  + would create Assignment '{title}' for {student['name']}")
+                print(f"  + would create Assignment {shown} for {student['name']}")
                 created += 1
                 continue
             try:
-                target = create_assignment(assign_db, nt, student, title)
+                target = create_assignment(assign_db, nt, student, title,
+                                           create_status)
             except RuntimeError as exc:
                 print(f"  ! could not create '{title}': "
                       f"{str(exc.args[0]).splitlines()[0]}")
                 continue
             created += 1
-            print(f"  + created Assignment '{title}' for {student['name']}")
+            print(f"  + created Assignment {shown} for {student['name']}")
 
         label = STATUS_LABEL[pr["status"]]
         body = comment_body(pr["status"], pr)

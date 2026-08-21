@@ -103,8 +103,16 @@ modify. The cost is that the board updates on a schedule rather than instantly;
 that gate their own PR. Combined with branch protection, the checks are a real
 gate rather than advice.
 
-The sync **never writes Status** — it posts a comment and, if you add an optional
-`CI` select property to Assignments, sets that. Status stays your decision.
+The sync **never changes the Status of a row that already exists.** It posts a
+comment and, if you add an optional `CI` select property to Assignments, sets
+that. On a row it creates itself (`--create-missing`) it sets Status once, to
+`Review needed`, so a practical submission arrives in your queue rather than
+looking untouched. After that the column is yours — nothing moves it to `Done`
+but you.
+
+Note the API can create a new `select` option on write but never a `status`
+one, so `Review needed` must already exist on the board. `--verify` lists the
+options of every select/status property so you can check.
 
 ---
 
