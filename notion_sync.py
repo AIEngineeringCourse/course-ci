@@ -472,8 +472,15 @@ def collect_prs(gh_token: str, org: str | None, repos: list[str]) -> list[dict]:
                     status = "fail"
                 else:
                     status = "warn"
-            except RuntimeError:
-                pass
+            except RuntimeError as exc:
+                # Never swallow this. Reading check runs needs the **Checks:
+                # Read** permission, and without it every board comment reads
+                # "no CI result" no matter what CI actually did - a total, silent
+                # loss of the board's only signal.
+                first = str(exc.args[0]).splitlines()[0]
+                print(f"  ! {full}#{pr['number']}: cannot read check runs "
+                      f"({first}) — status will show as 'no CI result'. "
+                      "COURSE_READ_TOKEN needs Checks: Read on this repo.")
             prs.append({
                 "repo": full,
                 "author": (pr.get("user") or {}).get("login", "").lower(),
