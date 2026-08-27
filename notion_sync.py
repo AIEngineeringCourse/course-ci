@@ -445,9 +445,21 @@ def branch_task_key(branch: str) -> str | None:
 # --------------------------------------------------------------------------- #
 def collect_prs(gh_token: str, org: str | None, repos: list[str]) -> list[dict]:
     if not repos:
-        listing = github(f"/orgs/{org}/repos?per_page=100&type=all", gh_token) \
-            if org else []
+        # Report the count. A token that cannot see the org returns an empty
+        # listing, which then reports "Found 0 open PR(s)" - indistinguishable
+        # from a quiet day, and the run still goes green.
+        try:
+            listing = github(f"/orgs/{org}/repos?per_page=100&type=all", gh_token) \
+                if org else []
+        except RuntimeError as exc:
+            print(f"  ! cannot list repos of org '{org}': "
+                  f"{str(exc.args[0]).splitlines()[0]}")
+            listing = []
         repos = [r["full_name"] for r in listing]
+        print(f"  {len(repos)} repo(s) visible to this token")
+        if not repos:
+            print("  ! nothing to scan. Check COURSE_READ_TOKEN has this org as "
+                  "its resource owner and 'All repositories' access.")
 
     prs = []
     for full in repos:
