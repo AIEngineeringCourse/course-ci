@@ -52,9 +52,14 @@ PROP_ASSIGNMENT_STATUS = "Status"
 # changing the column type later does not break matching.
 PROP_ASSIGNMENT_PR_URL = "PR url"
 # Status set on rows the pipeline creates, so a practical submission lands in
-# the mentor's queue rather than looking untouched. Only ever set at creation:
-# once a row exists its Status is the mentor's, never the pipeline's.
+# the mentor's queue rather than looking untouched.
 STATUS_ON_CREATE = "Review needed"
+# Status set when the checks pass: the submission is ready for a human. Only
+# moved from the states below, so a mentor's own decision is never overwritten -
+# in particular 'Done' is never dragged back into the queue. A failing verdict
+# leaves Status alone, because the student is still working.
+STATUS_ON_PASS = "Review needed"
+STATUS_MOVABLE_FROM = {"", "Not started", "In progress"}
 
 STATUS_LABEL = {"pass": "✅ CI passed", "warn": "⚠️ CI warnings",
                 "fail": "❌ CI failed", "pending": "⏳ CI running",
@@ -492,6 +497,36 @@ def pr_status(gh_token: str, full: str, sha: str) -> tuple[str, str | None]:
     return "none", "; ".join(errors)
 
 
+COMMENT_VERDICT = {"### ✅": "pass", "### ⚠️": "warn", "### ❌": "fail"}
+
+
+def refine_status_from_comment(gh_token: str, full: str, number: int,
+                               status: str) -> str:
+    """Recover check.py's three-level verdict from the action's PR comment.
+
+    check.py exits 0 for "passed with warnings", so the workflow conclusion is
+    `success` and the board would report a clean pass - a student who introduces
+    lint errors would see no board change at all. Only the action's own comment
+    distinguishes the two. Bot comments only: a student can comment on their own
+    PR and could otherwise fake a verdict.
+    """
+    if status != "pass":
+        return status
+    try:
+        comments = github(f"/repos/{full}/issues/{number}/comments?per_page=100",
+                          gh_token)
+    except RuntimeError:
+        return status                       # fall back to the conclusion
+    for comment in reversed(comments if isinstance(comments, list) else []):
+        if (comment.get("user") or {}).get("login") != "github-actions[bot]":
+            continue
+        body = (comment.get("body") or "").lstrip()
+        for prefix, verdict in COMMENT_VERDICT.items():
+            if body.startswith(prefix):
+                return verdict
+    return status
+
+
 def collect_prs(gh_token: str, org: str | None, repos: list[str]) -> list[dict]:
     if not repos:
         # Report the count. A token that cannot see the org returns an empty
@@ -520,6 +555,8 @@ def collect_prs(gh_token: str, org: str | None, repos: list[str]) -> list[dict]:
         for pr in open_prs:
             sha = pr["head"]["sha"]
             status, status_error = pr_status(gh_token, full, sha)
+            status = refine_status_from_comment(gh_token, full, pr["number"],
+                                                status)
             if status_error:
                 # Never silent: without a readable verdict every board comment
                 # says "no CI result" regardless of what CI did, and the run
@@ -726,6 +763,7 @@ def main() -> int:
 
     matched = 0
     created = 0
+    status_moved = 0
     pr_index = build_pr_index(assignments)
     print(f"{len(pr_index)} assignment row(s) carry a usable PR url")
 
@@ -829,11 +867,34 @@ def main() -> int:
             if payload:
                 notion(f"/pages/{target['id']}", nt, payload, method="PATCH")
 
+        # A passing submission is ready for a human, so move it into the queue -
+        # but only out of an un-reviewed state, so a mentor's decision stands.
+        if pr["status"] == "pass":
+            current = (props.get(PROP_ASSIGNMENT_STATUS, {}).get("status")
+                       or {}).get("name", "")
+            if current == STATUS_ON_PASS:
+                pass                                # already queued
+            elif current not in STATUS_MOVABLE_FROM:
+                print(f"    Status left at '{current}' — not the pipeline's to change")
+            else:
+                try:
+                    notion(f"/pages/{target['id']}", nt,
+                           {"properties": {PROP_ASSIGNMENT_STATUS: {
+                               "status": {"name": STATUS_ON_PASS}}}},
+                           method="PATCH")
+                    status_moved += 1
+                    print(f"    Status '{current or 'empty'}' → '{STATUS_ON_PASS}'")
+                except RuntimeError as exc:
+                    print(f"    ! could not set Status: "
+                          f"{str(exc.args[0]).splitlines()[0]} — the Notion "
+                          "integration needs the 'Update content' capability")
+
     tense = "would be" if args.dry_run else ""
     print(f"\n{matched} assignment(s) {tense} updated.")
     if args.create_missing:
         print(f"{created} assignment row(s) {tense} created.")
-    print("Status was not modified — that stays a mentor decision.")
+    print(f"{status_moved} Status value(s) {tense} moved to '{STATUS_ON_PASS}' "
+          "(only from an un-reviewed state; 'Done' is never touched).")
     return 0
 
 
