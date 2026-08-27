@@ -443,6 +443,55 @@ def branch_task_key(branch: str) -> str | None:
 
 
 # --------------------------------------------------------------------------- #
+def classify_conclusions(conclusions: list) -> str:
+    """A list of check/run conclusions -> one of our status keys."""
+    if not conclusions:
+        return "none"
+    if None in conclusions:                 # still running
+        return "pending"
+    if all(c == "success" for c in conclusions):
+        return "pass"
+    if any(c == "failure" for c in conclusions):
+        return "fail"
+    return "warn"                           # neutral, skipped, cancelled, ...
+
+
+def pr_status(gh_token: str, full: str, sha: str) -> tuple[str, str | None]:
+    """CI verdict for a commit, via whichever endpoint the token can read.
+
+    Two sources, because they need different fine-grained permissions and a
+    given token often has only one:
+      - commits/{sha}/check-runs  needs **Checks: Read**
+      - actions/runs?head_sha=    needs **Actions: Read**
+    Returns (status, error) where error is set only when neither could be read,
+    so the caller can say so instead of silently reporting "no CI result".
+    """
+    errors = []
+    try:
+        runs = github(f"/repos/{full}/commits/{sha}/check-runs", gh_token)
+        return classify_conclusions(
+            [c.get("conclusion") for c in runs.get("check_runs", [])]), None
+    except RuntimeError as exc:
+        errors.append(f"check-runs: {str(exc.args[0]).splitlines()[0]}")
+
+    try:
+        res = github(f"/repos/{full}/actions/runs?head_sha={sha}&per_page=100",
+                     gh_token)
+        # Keep only the newest run per workflow, so a superseded failure does
+        # not outvote the rerun that fixed it.
+        newest: dict[str, dict] = {}
+        for run in res.get("workflow_runs", []):
+            name = run.get("name") or str(run.get("workflow_id"))
+            if name not in newest or run.get("created_at", "") > newest[name].get("created_at", ""):
+                newest[name] = run
+        return classify_conclusions(
+            [r.get("conclusion") for r in newest.values()]), None
+    except RuntimeError as exc:
+        errors.append(f"actions/runs: {str(exc.args[0]).splitlines()[0]}")
+
+    return "none", "; ".join(errors)
+
+
 def collect_prs(gh_token: str, org: str | None, repos: list[str]) -> list[dict]:
     if not repos:
         # Report the count. A token that cannot see the org returns an empty
@@ -470,29 +519,15 @@ def collect_prs(gh_token: str, org: str | None, repos: list[str]) -> list[dict]:
             continue
         for pr in open_prs:
             sha = pr["head"]["sha"]
-            status = "none"
-            try:
-                runs = github(f"/repos/{full}/commits/{sha}/check-runs", gh_token)
-                concl = [c.get("conclusion") for c in runs.get("check_runs", [])]
-                if not concl:
-                    status = "none"
-                elif None in concl:
-                    status = "pending"
-                elif all(c == "success" for c in concl):
-                    status = "pass"
-                elif any(c == "failure" for c in concl):
-                    status = "fail"
-                else:
-                    status = "warn"
-            except RuntimeError as exc:
-                # Never swallow this. Reading check runs needs the **Checks:
-                # Read** permission, and without it every board comment reads
-                # "no CI result" no matter what CI actually did - a total, silent
-                # loss of the board's only signal.
-                first = str(exc.args[0]).splitlines()[0]
-                print(f"  ! {full}#{pr['number']}: cannot read check runs "
-                      f"({first}) — status will show as 'no CI result'. "
-                      "COURSE_READ_TOKEN needs Checks: Read on this repo.")
+            status, status_error = pr_status(gh_token, full, sha)
+            if status_error:
+                # Never silent: without a readable verdict every board comment
+                # says "no CI result" regardless of what CI did, and the run
+                # still goes green.
+                print(f"  ! {full}#{pr['number']}: cannot read the CI verdict "
+                      f"— status will show as 'no CI result'. COURSE_READ_TOKEN "
+                      f"needs **Checks: Read** or **Actions: Read** on this "
+                      f"repo. ({status_error})")
             prs.append({
                 "repo": full,
                 "author": (pr.get("user") or {}).get("login", "").lower(),
