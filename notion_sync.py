@@ -261,6 +261,35 @@ def row_pr_urls(row: dict) -> list[str]:
     return out
 
 
+def move_status_to_review(page_id: str, props: dict, token: str,
+                          who: str) -> int:
+    """Queue a passing submission for review. Returns 1 if it moved.
+
+    Idempotent, and deliberately conservative: a row already queued is left
+    alone, and any state outside STATUS_MOVABLE_FROM belongs to the mentor -
+    'Done' in particular is never dragged back into the queue.
+    """
+    current = (props.get(PROP_ASSIGNMENT_STATUS, {}).get("status")
+               or {}).get("name", "")
+    if current == STATUS_ON_PASS:
+        return 0                                    # already queued
+    if current not in STATUS_MOVABLE_FROM:
+        print(f"    {who}: Status left at '{current}' — not the pipeline's to change")
+        return 0
+    try:
+        notion(f"/pages/{page_id}", token,
+               {"properties": {PROP_ASSIGNMENT_STATUS: {
+                   "status": {"name": STATUS_ON_PASS}}}},
+               method="PATCH")
+    except RuntimeError as exc:
+        print(f"    ! {who}: could not set Status: "
+              f"{str(exc.args[0]).splitlines()[0]} — the Notion integration "
+              "needs the 'Update content' capability")
+        return 0
+    print(f"    {who}: Status '{current or 'empty'}' → '{STATUS_ON_PASS}'")
+    return 1
+
+
 def find_row_by_task(assignments: list[dict], student: dict, key: str,
                      token: str, title_cache: dict[str, str]) -> dict | None:
     """Fallback match: the student's row whose task resolves to `key`.
@@ -840,6 +869,16 @@ def main() -> int:
         label = STATUS_LABEL[pr["status"]]
         body = comment_body(pr["status"], pr)
 
+        props = target.get("properties", {})
+
+        # Status first, and independent of whether a comment is posted. It is
+        # idempotent - already-queued rows and mentor-owned states are skipped -
+        # so running it every time makes a failed write self-healing. Behind the
+        # comment dedup it would never be retried: the verdict is unchanged on
+        # the next run, so the whole block would be skipped forever.
+        if pr["status"] == "pass" and not args.dry_run:
+            status_moved += move_status_to_review(target["id"], props, nt, who)
+
         # Post only when the verdict changed. Checked before the dry-run bail
         # so a dry run reports exactly what a live run would do.
         if previous_ci_label(target["id"], nt) == label:
@@ -854,7 +893,6 @@ def main() -> int:
 
         post_comment(target["id"], nt, body)
 
-        props = target.get("properties", {})
         if PROP_CI in props:
             ptype = props[PROP_CI]["type"]
             if ptype == "select":
@@ -866,28 +904,6 @@ def main() -> int:
                 payload = None
             if payload:
                 notion(f"/pages/{target['id']}", nt, payload, method="PATCH")
-
-        # A passing submission is ready for a human, so move it into the queue -
-        # but only out of an un-reviewed state, so a mentor's decision stands.
-        if pr["status"] == "pass":
-            current = (props.get(PROP_ASSIGNMENT_STATUS, {}).get("status")
-                       or {}).get("name", "")
-            if current == STATUS_ON_PASS:
-                pass                                # already queued
-            elif current not in STATUS_MOVABLE_FROM:
-                print(f"    Status left at '{current}' — not the pipeline's to change")
-            else:
-                try:
-                    notion(f"/pages/{target['id']}", nt,
-                           {"properties": {PROP_ASSIGNMENT_STATUS: {
-                               "status": {"name": STATUS_ON_PASS}}}},
-                           method="PATCH")
-                    status_moved += 1
-                    print(f"    Status '{current or 'empty'}' → '{STATUS_ON_PASS}'")
-                except RuntimeError as exc:
-                    print(f"    ! could not set Status: "
-                          f"{str(exc.args[0]).splitlines()[0]} — the Notion "
-                          "integration needs the 'Update content' capability")
 
     tense = "would be" if args.dry_run else ""
     print(f"\n{matched} assignment(s) {tense} updated.")
