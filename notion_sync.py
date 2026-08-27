@@ -54,12 +54,16 @@ PROP_ASSIGNMENT_PR_URL = "PR url"
 # Status set on rows the pipeline creates, so a practical submission lands in
 # the mentor's queue rather than looking untouched.
 STATUS_ON_CREATE = "Review needed"
-# Status set when the checks pass: the submission is ready for a human. Only
-# moved from the states below, so a mentor's own decision is never overwritten -
-# in particular 'Done' is never dragged back into the queue. A failing verdict
-# leaves Status alone, because the student is still working.
-STATUS_ON_PASS = "Review needed"
-STATUS_MOVABLE_FROM = {"", "Not started", "In progress"}
+# Status is the gate, not the output. A student moves their row to
+# STATUS_GATE to say "I am finished, please check this"; only those rows are
+# examined. Anything else - Not started, In progress, Done - is either not
+# submitted yet or already handled, so the pipeline stays out of it. That also
+# means a row bounced back to the student stops collecting comments until they
+# resubmit, and a reviewed row is never disturbed.
+STATUS_GATE = "Review needed"
+# A failing submission goes back to the student. A pass (or a warning, which is
+# non-blocking) stays in the queue for the mentor.
+STATUS_ON_FAIL = "In progress"
 
 STATUS_LABEL = {"pass": "✅ CI passed", "warn": "⚠️ CI warnings",
                 "fail": "❌ CI failed", "pending": "⏳ CI running",
@@ -261,33 +265,25 @@ def row_pr_urls(row: dict) -> list[str]:
     return out
 
 
-def move_status_to_review(page_id: str, props: dict, token: str,
-                          who: str) -> int:
-    """Queue a passing submission for review. Returns 1 if it moved.
+def row_status(props: dict) -> str:
+    """The row's current Status name, or "" when unset."""
+    return (props.get(PROP_ASSIGNMENT_STATUS, {}).get("status") or {}).get("name", "")
 
-    Idempotent, and deliberately conservative: a row already queued is left
-    alone, and any state outside STATUS_MOVABLE_FROM belongs to the mentor -
-    'Done' in particular is never dragged back into the queue.
-    """
-    current = (props.get(PROP_ASSIGNMENT_STATUS, {}).get("status")
-               or {}).get("name", "")
-    if current == STATUS_ON_PASS:
-        return 0                                    # already queued
-    if current not in STATUS_MOVABLE_FROM:
-        print(f"    {who}: Status left at '{current}' — not the pipeline's to change")
-        return 0
+
+def set_status(page_id: str, token: str, value: str, who: str) -> bool:
+    """Write Status. Returns True on success, and explains any refusal."""
     try:
         notion(f"/pages/{page_id}", token,
                {"properties": {PROP_ASSIGNMENT_STATUS: {
-                   "status": {"name": STATUS_ON_PASS}}}},
+                   "status": {"name": value}}}},
                method="PATCH")
     except RuntimeError as exc:
-        print(f"    ! {who}: could not set Status: "
+        print(f"    ! {who}: could not set Status to '{value}': "
               f"{str(exc.args[0]).splitlines()[0]} — the Notion integration "
-              "needs the 'Update content' capability")
-        return 0
-    print(f"    {who}: Status '{current or 'empty'}' → '{STATUS_ON_PASS}'")
-    return 1
+              "needs the 'Update content' capability, and the option must "
+              "already exist on the board")
+        return False
+    return True
 
 
 def find_row_by_task(assignments: list[dict], student: dict, key: str,
@@ -793,6 +789,7 @@ def main() -> int:
     matched = 0
     created = 0
     status_moved = 0
+    skipped_by_status = 0
     pr_index = build_pr_index(assignments)
     print(f"{len(pr_index)} assignment row(s) carry a usable PR url")
 
@@ -871,17 +868,33 @@ def main() -> int:
 
         props = target.get("properties", {})
 
-        # Status first, and independent of whether a comment is posted. It is
-        # idempotent - already-queued rows and mentor-owned states are skipped -
-        # so running it every time makes a failed write self-healing. Behind the
-        # comment dedup it would never be retried: the verdict is unchanged on
-        # the next run, so the whole block would be skipped forever.
-        if pr["status"] == "pass" and not args.dry_run:
-            status_moved += move_status_to_review(target["id"], props, nt, who)
+        # The gate: only a row the student has moved to STATUS_GATE is asking to
+        # be checked. Everything else is unsubmitted, already bounced back, or
+        # reviewed - none of the pipeline's business.
+        current_status = row_status(props)
+        if current_status != STATUS_GATE:
+            print(f"  - {who} / {what}: Status is "
+                  f"'{current_status or 'empty'}', not '{STATUS_GATE}' — skipping")
+            skipped_by_status += 1
+            continue
 
-        # Post only when the verdict changed. Checked before the dry-run bail
-        # so a dry run reports exactly what a live run would do.
-        if previous_ci_label(target["id"], nt) == label:
+        # A failing submission goes back to the student. A pass or a warning is
+        # non-blocking, so it stays in the queue for the mentor.
+        bounced = False
+        if pr["status"] == "fail":
+            if args.dry_run:
+                print(f"    {who}: Status would move "
+                      f"'{STATUS_GATE}' → '{STATUS_ON_FAIL}'")
+                bounced = True
+            elif set_status(target["id"], nt, STATUS_ON_FAIL, who):
+                print(f"    {who}: Status '{STATUS_GATE}' → '{STATUS_ON_FAIL}'")
+                bounced = True
+            status_moved += 1 if bounced else 0
+
+        # Post only when the verdict changed - except when we just bounced the
+        # row. Returning it to the queue is a deliberate act by the student, so
+        # they get told why even if the verdict is the same as last time.
+        if not bounced and previous_ci_label(target["id"], nt) == label:
             print(f"  = {who} / {what}: unchanged ({label}) — not re-posting")
             continue
 
@@ -909,8 +922,9 @@ def main() -> int:
     print(f"\n{matched} assignment(s) {tense} updated.")
     if args.create_missing:
         print(f"{created} assignment row(s) {tense} created.")
-    print(f"{status_moved} Status value(s) {tense} moved to '{STATUS_ON_PASS}' "
-          "(only from an un-reviewed state; 'Done' is never touched).")
+    print(f"{skipped_by_status} row(s) skipped: Status not '{STATUS_GATE}'.")
+    print(f"{status_moved} failing submission(s) {tense} sent back to "
+          f"'{STATUS_ON_FAIL}'.")
     return 0
 
 
