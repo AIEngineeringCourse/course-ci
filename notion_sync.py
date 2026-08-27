@@ -46,6 +46,11 @@ PROP_ASSIGNMENT_STUDENT = "Student"
 PROP_ASSIGNMENT_TASK = "Assignment"
 PROP_CI = "CI"          # optional select/rich_text property; skipped if absent
 PROP_ASSIGNMENT_STATUS = "Status"
+# Students paste the pull-request link here. Matching on it is exact, and unlike
+# the Github field on the Students board it is visible to the person who can fix
+# it. Declared as a `files` property; url and rich_text are read too, so
+# changing the column type later does not break matching.
+PROP_ASSIGNMENT_PR_URL = "PR url"
 # Status set on rows the pipeline creates, so a practical submission lands in
 # the mentor's queue rather than looking untouched. Only ever set at creation:
 # once a row exists its Status is the mentor's, never the pipeline's.
@@ -173,7 +178,149 @@ def plain(prop: dict) -> str:
         return prop.get("url") or ""
     if t == "relation":
         return ",".join(r["id"] for r in prop.get("relation", []))
+    if t == "files":
+        return ",".join(file_urls(prop))
     return ""
+
+
+def file_urls(prop: dict) -> list[str]:
+    """URLs out of a Notion `files` property.
+
+    An entry is either `external` (what a pasted link becomes) or `file` (an
+    upload, whose url is signed and expires). Notion also stores the pasted
+    text as `name`, which is the fallback when neither shape is present.
+    """
+    out = []
+    for f in prop.get("files") or []:
+        if f.get("type") == "external":
+            url = (f.get("external") or {}).get("url") or ""
+        else:
+            url = (f.get("file") or {}).get("url") or ""
+        url = url or f.get("name") or ""
+        if url:
+            out.append(url)
+    return out
+
+
+# owner/repo/pull/N - anything after the number (/files, /commits) is noise.
+PR_PATH_RE = re.compile(r"^/([^/]+)/([^/]+)/pull/(\d+)")
+
+
+def normalize_pr_url(value: str) -> str | None:
+    """Canonical https://github.com/owner/repo/pull/N, or None if not a PR link.
+
+    Students paste `/files` views, `#issuecomment-` anchors, trailing slashes,
+    mixed case and occasionally a branch or commit url. Everything that is not
+    unambiguously a pull request returns None so the caller can say so, rather
+    than silently failing to match.
+    """
+    v = (value or "").strip()
+    if not v:
+        return None
+    if not v.startswith(("http://", "https://")):
+        v = "https://" + v
+    try:
+        parsed = urllib.parse.urlparse(v)
+    except ValueError:
+        return None
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[len("www."):]
+    if host != "github.com":
+        return None
+    m = PR_PATH_RE.match(parsed.path)
+    if not m:
+        return None
+    owner, repo, number = m.group(1).lower(), m.group(2).lower(), int(m.group(3))
+    return f"https://github.com/{owner}/{repo}/pull/{number}"
+
+
+def row_pr_urls(row: dict) -> list[str]:
+    """Every canonical PR url on a row, whatever type the column is."""
+    prop = row.get("properties", {}).get(PROP_ASSIGNMENT_PR_URL) or {}
+    ptype = prop.get("type")
+    if ptype == "files":
+        raw = file_urls(prop)
+    elif ptype == "url":
+        raw = [prop.get("url") or ""]
+    elif ptype == "rich_text":
+        raw = [plain(prop)]
+    else:
+        raw = []
+    seen, out = set(), []
+    for candidate in raw:
+        norm = normalize_pr_url(candidate)
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(norm)
+    return out
+
+
+def find_row_by_task(assignments: list[dict], student: dict, key: str,
+                     token: str, title_cache: dict[str, str]) -> dict | None:
+    """Fallback match: the student's row whose task resolves to `key`.
+
+    Kept so a student who has not pasted a link still gets feedback, provided
+    the task is identifiable from the row.
+    """
+    for row in assignments:
+        props = row.get("properties", {})
+        if student["page_id"] not in plain(props.get(PROP_ASSIGNMENT_STUDENT, {})):
+            continue
+        task_prop = props.get(PROP_ASSIGNMENT_TASK, {})
+        if task_prop.get("type") == "relation":
+            # Relation: follow each linked page and read its title.
+            for tid in filter(None, plain(task_prop).split(",")):
+                if tid not in title_cache:
+                    title_cache[tid] = page_title(tid, token)
+                if task_key_from_title(title_cache[tid]) == key:
+                    return row
+        elif task_key_from_title(plain(task_prop)) == key:
+            # title / rich_text / select: the property names the task itself.
+            return row
+    return None
+
+
+def audit_pr_urls(assignments: list[dict]) -> list[str]:
+    """Problems in the PR url column: unusable values and duplicates.
+
+    A value that is not a pull-request link matches nothing and reports nothing,
+    so without this it looks identical to a student who pasted correctly.
+    """
+    problems: list[str] = []
+    for row in assignments:
+        prop = row.get("properties", {}).get(PROP_ASSIGNMENT_PR_URL) or {}
+        title = plain(row.get("properties", {}).get(PROP_ASSIGNMENT_TASK, {})) \
+            or "(untitled row)"
+        ptype = prop.get("type")
+        if ptype == "files":
+            raw = file_urls(prop)
+        elif ptype == "url":
+            raw = [prop.get("url") or ""]
+        elif ptype == "rich_text":
+            raw = [plain(prop)]
+        else:
+            continue
+        for value in [r for r in raw if r.strip()]:
+            if not normalize_pr_url(value):
+                problems.append(f"{title}: not a pull-request link — {value[:80]}")
+
+    for url, rows in build_pr_index(assignments).items():
+        if len(rows) > 1:
+            titles = [plain(r.get("properties", {}).get(PROP_ASSIGNMENT_TASK, {}))
+                      or "(untitled)" for r in rows]
+            problems.append(f"{url} is on {len(rows)} rows ({', '.join(titles)}) "
+                            "— it will be skipped, not guessed")
+    return problems
+
+
+def build_pr_index(assignments: list[dict]) -> dict[str, list[dict]]:
+    """canonical PR url -> the row(s) claiming it. More than one is a conflict."""
+    index: dict[str, list[dict]] = {}
+    for row in assignments:
+        for url in row_pr_urls(row):
+            index.setdefault(url, []).append(row)
+    return index
 
 
 def query_all(db_id: str, token: str, payload: dict | None = None) -> list[dict]:
@@ -462,6 +609,19 @@ def main() -> int:
         print("  properties:", ", ".join(props))
         print(f"  '{PROP_CI}' property present:", PROP_CI in props,
               "(optional — comments are used regardless)")
+        pr_prop = props.get(PROP_ASSIGNMENT_PR_URL)
+        if not pr_prop:
+            print(f"  ! no '{PROP_ASSIGNMENT_PR_URL}' property — PR-link "
+                  "matching is off; falling back to branch/task matching only")
+        else:
+            rows = query_all(assign_db, nt)
+            index = build_pr_index(rows)
+            print(f"'{PROP_ASSIGNMENT_PR_URL}' is a {pr_prop.get('type')} "
+                  f"property: {len(index)} usable PR url(s) across "
+                  f"{len(rows)} row(s)")
+            for problem in audit_pr_urls(rows):
+                print(f"  ! {problem}")
+
         issues = audit_students(nt, students_db, gt)
         if issues:
             print("Students board problems:")
@@ -512,42 +672,52 @@ def main() -> int:
 
     matched = 0
     created = 0
+    pr_index = build_pr_index(assignments)
+    print(f"{len(pr_index)} assignment row(s) carry a usable PR url")
+
     for pr in prs:
-        student = students.get(pr["author"])
-        if not student:
-            print(f"  ? {pr['repo']}#{pr['number']}: GitHub user '{pr['author']}' "
-                  "not in the Students board — skipping")
-            continue
+        where = f"{pr['repo']}#{pr['number']}"
+        student = students.get(pr["author"])       # may be None; not required
         key = branch_task_key(pr["branch"])
-        if not key:
-            print(f"  ? {pr['repo']}#{pr['number']}: branch '{pr['branch']}' does not "
-                  "match phaseN/taskM- — skipping")
+        target, matched_by = None, ""
+
+        # ---- primary: the student pasted this PR's link on their page --------
+        claimed = pr_index.get(normalize_pr_url(pr["url"]) or "", [])
+        if len(claimed) > 1:
+            print(f"  ! {where}: this PR url is on {len(claimed)} rows — "
+                  "skipping rather than guessing which one is meant")
+            continue
+        if claimed:
+            target, matched_by = claimed[0], "PR url"
+            # A pasted link can be someone else's. Only cross-check when both
+            # sides are known, so an unmaintained Students board blocks nothing.
+            relation = plain(target.get("properties", {})
+                             .get(PROP_ASSIGNMENT_STUDENT, {}))
+            if student and relation and student["page_id"] not in relation:
+                print(f"  ! {where}: opened by '{pr['author']}' but that row "
+                      "belongs to another student — skipping")
+                continue
+
+        # ---- fallback: student + phaseN/taskM from the branch ---------------
+        if not target and not student:
+            print(f"  ? {where}: no row carries this PR url, and "
+                  f"'{pr['author']}' is not on the Students board — skipping")
+            continue
+        if not target and not key:
+            print(f"  ? {where}: no row carries this PR url, and branch "
+                  f"'{pr['branch']}' does not match phaseN/taskM- — skipping")
             continue
 
-        target = None
-        for row in assignments:
-            props = row.get("properties", {})
-            rel = props.get(PROP_ASSIGNMENT_STUDENT, {})
-            if student["page_id"] not in plain(rel):
-                continue
-            task_prop = props.get(PROP_ASSIGNMENT_TASK, {})
-            if task_prop.get("type") == "relation":
-                # Relation: follow each linked page and read its title.
-                for tid in filter(None, plain(task_prop).split(",")):
-                    if tid not in title_cache:
-                        title_cache[tid] = page_title(tid, nt)
-                    if task_key_from_title(title_cache[tid]) == key:
-                        target = row
-                        break
-            elif task_key_from_title(plain(task_prop)) == key:
-                # title / rich_text / select: the property names the task itself.
-                target = row
-            if target:
-                break
+        if not target:
+            matched_by = "branch"
+        if not target:
+            target = find_row_by_task(assignments, student, key, nt, title_cache)
 
         if not target:
             if not args.create_missing:
-                print(f"  ? no Assignment row for {student['name']} + {key}")
+                print(f"  ? {where}: no row carries this PR url and no "
+                      f"{key} row for {student['name']} — paste the PR link "
+                      "on the assignment page")
                 continue
 
             title = canonical_assignment_title(key)
@@ -573,17 +743,19 @@ def main() -> int:
             created += 1
             print(f"  + created Assignment {shown} for {student['name']}")
 
+        who = student["name"] if student else pr["author"]
+        what = key or pr["branch"]
         label = STATUS_LABEL[pr["status"]]
         body = comment_body(pr["status"], pr)
 
         # Post only when the verdict changed. Checked before the dry-run bail
         # so a dry run reports exactly what a live run would do.
         if previous_ci_label(target["id"], nt) == label:
-            print(f"  = {student['name']} / {key}: unchanged ({label}) — not re-posting")
+            print(f"  = {who} / {what}: unchanged ({label}) — not re-posting")
             continue
 
         matched += 1
-        print(f"  → {student['name']} / {key}: {label}")
+        print(f"  → {who} / {what}: {label}  (matched by {matched_by})")
 
         if args.dry_run:
             continue
