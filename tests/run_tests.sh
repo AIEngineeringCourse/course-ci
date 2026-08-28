@@ -73,6 +73,7 @@ echo "== exit codes =="
 run_case clean  clean  phase2/task4-rag-qa-bot        0
 run_case broken broken phase2/task4-rag-qa-bot        1
 run_case task1  task1  phase1/task1-first-api-calls   0
+run_case task5  task5  phase2/task5-rag-debug         0
 
 echo
 echo "== broken fixture fails for the right reasons =="
@@ -137,6 +138,15 @@ echo
 echo "== phase2 renumbering =="
 assert_contains clean "All 7 expected files present."
 assert_contains clean "Ph2 Task 4"
+
+# The bugs.md rule moved from the old task3 to task5 in the renumbering, and
+# had never been exercised. This pins both the rule and the directory
+# convention task5 now relies on - without a matching directory, detection
+# fails before any file is read.
+echo
+echo "== phase2/task5 debug task =="
+assert_contains task5 "phase2/task5 → phase2/task5_rag_debug"
+assert_contains task5 "bugs.md:"           # the notes check ran and passed
 
 echo
 echo "-------- $pass passed, $fail failed --------"

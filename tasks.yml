@@ -81,6 +81,9 @@ tasks:
       - "chain.py"
       - "golden_set.json"
       - "eval.py"
+      # Per-task .gitignore, distinct from the repo-root one the gitignore check
+      # reads: these tasks ship a local vector store, so the ignore rules live
+      # beside the code that produces them. Both files are expected.
       - ".gitignore"
       - "README.md"
     golden_set:
@@ -94,9 +97,10 @@ tasks:
 
   phase2/task5:
     name: "Ph2 Task 5 — Debug the broken RAG pipeline"
-    # No dir_glob: the task page specifies no directory. Falls back to
-    # phase2/task5*, so the work must still live in a directory whose name
-    # starts with task5 or detection fails. See the note to Mikhail.
+    # The task page named no directory, but "anywhere" is not an option: with no
+    # matching directory, task detection fails before any file is checked. Fixed
+    # on 2026-08-28 by using the same convention as every other Phase 2 task.
+    dir_glob: "phase2/task5_rag_debug"
     required: ["rag_fixed.py", "bugs.md"]
     notes:
       file: "bugs.md"
