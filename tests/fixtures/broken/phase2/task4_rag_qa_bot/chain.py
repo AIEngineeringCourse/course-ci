@@ -1,4 +1,4 @@
-from ingest import build_index
+from ingestion import build_index
 
 
 def build_chain(retriever, llm)

@@ -14,5 +14,5 @@ the `out_of_scope` golden-set cases refusable rather than hallucinated.
 
 ## Run
 
-    python ingest.py
+    python ingestion.py
     python eval.py

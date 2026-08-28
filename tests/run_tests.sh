@@ -70,8 +70,8 @@ assert_absent() {
 }
 
 echo "== exit codes =="
-run_case clean  clean  phase2/task2-rag-qa-bot        0
-run_case broken broken phase2/task2-rag-qa-bot        1
+run_case clean  clean  phase2/task4-rag-qa-bot        0
+run_case broken broken phase2/task4-rag-qa-bot        1
 run_case task1  task1  phase1/task1-first-api-calls   0
 
 echo
@@ -129,6 +129,14 @@ assert_contains clean "All model references are current."
 echo
 echo "== phase1 needs no README =="
 assert_contains task1 "All 1 expected files present."
+
+# Pins the phase2 renumbering: task4 is the RAG bot and requires all seven
+# files, including ingestion.py (not ingest.py) and a per-task .gitignore.
+# A silent revert of the manifest would drop this count and fail here.
+echo
+echo "== phase2 renumbering =="
+assert_contains clean "All 7 expected files present."
+assert_contains clean "Ph2 Task 4"
 
 echo
 echo "-------- $pass passed, $fail failed --------"

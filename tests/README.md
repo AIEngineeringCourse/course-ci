@@ -10,8 +10,8 @@ nothing here runs student code.
 
 | Fixture | Branch | Expected |
 |---|---|---|
-| `fixtures/clean` | `phase2/task2-rag-qa-bot` | exit **0** |
-| `fixtures/broken` | `phase2/task2-rag-qa-bot` | exit **1** |
+| `fixtures/clean` | `phase2/task4-rag-qa-bot` | exit **0** |
+| `fixtures/broken` | `phase2/task4-rag-qa-bot` | exit **1** |
 | `fixtures/task1` | `phase1/task1-first-api-calls` | exit **0** |
 
 ## Why the exit code alone is not enough

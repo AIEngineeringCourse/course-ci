@@ -50,17 +50,38 @@ tasks:
     required: ["*.py"]
 
   # ----------------------------------------------------------------- Phase 2
+  # Renumbered 2026-08-28 to match the final Notion ordering. The golden-set
+  # rule moved from the old task2 to task4, and the bugs.md rule from the old
+  # task3 to task5, because the tasks themselves moved.
   phase2/task1:
-    name: "Ph2 Task 1 — Rewrite the summarizer with LCEL"
-    required: ["*.py", "README.md"]
+    name: "Ph2 Task 1 — LCEL summarizer"
+    dir_glob: "phase2/task1_summarizer"
+    required:
+      - "part_a_summarizer.py"
+      - "part_b_structured.py"
+      - "comparison.md"
+      - "README.md"
 
   phase2/task2:
-    name: "Ph2 Task 2 — RAG document Q&A bot"
+    name: "Ph2 Task 2 — Structured output classifier"
+    dir_glob: "phase2/task2_structured_output"
+    required: ["classify.py", "README.md"]
+
+  phase2/task3:
+    name: "Ph2 Task 3 — Chat memory"
+    dir_glob: "phase2/task3_chat_memory"
+    required: ["chatbot_memory.py", "README.md"]
+
+  phase2/task4:
+    name: "Ph2 Task 4 — RAG document Q&A bot"
+    dir_glob: "phase2/task4_rag_qa_bot"
     required:
-      - "ingest.py"
+      - "rag_chatbot.py"
+      - "ingestion.py"
       - "chain.py"
-      - "eval.py"
       - "golden_set.json"
+      - "eval.py"
+      - ".gitignore"
       - "README.md"
     golden_set:
       file: "golden_set.json"
@@ -71,26 +92,28 @@ tasks:
         out_of_scope: 3
         ambiguous: 2
 
-  phase2/task3:
-    name: "Ph2 Task 3 — Debug the broken RAG pipeline"
-    required: ["*.py", "bugs.md"]
+  phase2/task5:
+    name: "Ph2 Task 5 — Debug the broken RAG pipeline"
+    # No dir_glob: the task page specifies no directory. Falls back to
+    # phase2/task5*, so the work must still live in a directory whose name
+    # starts with task5 or detection fails. See the note to Mikhail.
+    required: ["rag_fixed.py", "bugs.md"]
     notes:
       file: "bugs.md"
       min_words: 300
       min_items: 5          # the task page states there are 5 seeded bugs
       item_label: "bug"
 
-  phase2/task4:
-    name: "Ph2 Task 4 — Multi-document Q&A with citations"
-    required: ["*.py", "README.md"]
-
-  phase2/task5:
-    name: "Ph2 Task 5 — Structured output classifier"
-    required: ["classify.py", "README.md"]
-
   phase2/task6:
-    name: "Ph2 Task 6 — LangChain memory"
-    required: ["chatbot_memory.py", "README.md"]
+    name: "Ph2 Task 6 — Multi-document Q&A with citations"
+    dir_glob: "phase2/task6_multi_doc_qa"
+    required:
+      - "qa_bot.py"
+      - "ingestion.py"
+      - "chain.py"
+      - "analysis.md"
+      - ".gitignore"
+      - "README.md"
 
   # ----------------------------------------------------------------- Phase 3
   # TODO(Misha): add entries as Phase 3 tasks get submission trees.
