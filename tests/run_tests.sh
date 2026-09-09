@@ -201,6 +201,10 @@ assert_contains p3t2_fail "Missing: README.md"
 # grouped cases by category can see which keys they actually produced.
 run_case p2t4_badshape p2t4_badshape phase2/task4-rag-qa-bot 1
 assert_contains p2t4_badshape "found object with keys: happy_path, edge_cases, out_of_scope, ambiguous"
+# The gitignore check reads the repository root; the required-files check reads
+# the task directory. Both rows can mention ".gitignore" about different files,
+# so the gitignore row states which one it inspected.
+assert_contains clean "repository-root .gitignore"
 echo
 echo "-------- $pass passed, $fail failed --------"
 [ "$fail" -eq 0 ] || exit 1

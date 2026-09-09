@@ -148,15 +148,26 @@ def check_secrets(root: Path) -> Result:
 
 
 def check_gitignore(root: Path) -> Result:
+    """Inspects the REPOSITORY-ROOT .gitignore, and says so.
+
+    Some tasks also require a .gitignore inside the task directory, because they
+    build a local vector store and the ignore rules belong beside the code that
+    writes it. That is a different file, enforced by the required-files check.
+    Naming the path here stops a green row and a red row about ".gitignore" on
+    the same run from reading as a contradiction.
+    """
     gi = root / ".gitignore"
     if not gi.exists():
-        return Result("gitignore", "warn", "No .gitignore at repository root.")
+        return Result("gitignore", "warn",
+                      "No .gitignore at the repository root.")
     body = read_text(gi)
     missing = [n for n in (".env",) if n not in body]
     if missing:
         return Result("gitignore", "warn",
-                      ".gitignore does not list: " + ", ".join(missing))
-    return Result("gitignore", "pass", ".env is ignored.")
+                      "The repository-root .gitignore does not list: "
+                      + ", ".join(missing))
+    return Result("gitignore", "pass",
+                  ".env is ignored (repository-root .gitignore).")
 
 
 def check_models(task_dir: Path) -> Result:
