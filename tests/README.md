@@ -12,7 +12,28 @@ nothing here runs student code.
 |---|---|---|
 | `fixtures/clean` | `phase2/task4-rag-qa-bot` | exit **0** |
 | `fixtures/broken` | `phase2/task4-rag-qa-bot` | exit **1** |
+| `fixtures/p2t4_badshape` | `phase2/task4-rag-qa-bot` | exit **1** |
 | `fixtures/task1` | `phase1/task1-first-api-calls` | exit **0** |
+| `fixtures/task5` | `phase2/task5-rag-debug` | exit **0** |
+| `fixtures/p3t{1..6}_{pass,fail}` | the Phase 3 branches | **0** / **1** |
+| `fixtures/p4t{1,2,3,4,6}_{pass,fail}` | the Phase 4 branches | **0** / **1** |
+
+`phase4/task5` has no fixture because it has no manifest entry - the task page
+has a duplicate draft and the required file set is unsettled. See the TODO in
+`tasks.yml`.
+
+## The four fixtures that exist for a specific reason
+
+- **`p3t1_pass`** holds a commented-out `# import langchain` and a string
+  literal `"langgraph"`. Both must pass. This is what proves
+  `check_forbidden_imports` parses with `ast` rather than matching source text.
+- **`p3t1_fail`** imports `langchain.agents` for real, and must fail naming the
+  file and line.
+- **`p4t2_pass`** is prose only: three `.md` files and no `.py` at all. Nothing
+  to compile is a **pass**, not a skip and not an error.
+- **`p3t4_pass`** exercises a nested required path, `sample_code/buggy_code.py`.
+- **`p2t4_badshape`** submits a golden set keyed by category instead of a
+  `cases` list, and pins that the rejection message names the keys received.
 
 ## Why the exit code alone is not enough
 

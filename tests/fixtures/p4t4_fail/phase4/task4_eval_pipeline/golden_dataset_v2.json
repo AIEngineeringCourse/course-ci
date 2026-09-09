@@ -1,0 +1,165 @@
+{
+  "version": 2,
+  "cases": [
+    {
+      "id": "c0",
+      "question": "Question 0 about the corpus?",
+      "expected_source": {
+        "source": "doc0.md",
+        "page": 1
+      }
+    },
+    {
+      "id": "c1",
+      "question": "Question 1 about the corpus?",
+      "expected_source": {
+        "source": "doc1.md",
+        "page": 2
+      }
+    },
+    {
+      "id": "c2",
+      "question": "Question 2 about the corpus?",
+      "expected_source": {
+        "source": "doc2.md",
+        "page": 3
+      }
+    },
+    {
+      "id": "c3",
+      "question": "Question 3 about the corpus?",
+      "expected_source": {
+        "source": "doc3.md",
+        "page": 4
+      }
+    },
+    {
+      "id": "c4",
+      "question": "Question 4 about the corpus?",
+      "expected_source": {
+        "source": "doc4.md",
+        "page": 5
+      }
+    },
+    {
+      "id": "c5",
+      "question": "Question 5 about the corpus?",
+      "expected_source": {
+        "source": "doc0.md",
+        "page": 6
+      }
+    },
+    {
+      "id": "c6",
+      "question": "Question 6 about the corpus?",
+      "expected_source": {
+        "source": "doc1.md",
+        "page": 7
+      }
+    },
+    {
+      "id": "c7",
+      "question": "Question 7 about the corpus?",
+      "expected_source": {
+        "source": "doc2.md",
+        "page": 1
+      }
+    },
+    {
+      "id": "c8",
+      "question": "Question 8 about the corpus?",
+      "expected_source": {
+        "source": "doc3.md",
+        "page": 2
+      }
+    },
+    {
+      "id": "c9",
+      "question": "Question 9 about the corpus?",
+      "expected_source": {
+        "source": "doc4.md",
+        "page": 3
+      }
+    },
+    {
+      "id": "c10",
+      "question": "Question 10 about the corpus?",
+      "expected_source": {
+        "source": "doc0.md",
+        "page": 4
+      }
+    },
+    {
+      "id": "c11",
+      "question": "Question 11 about the corpus?",
+      "expected_source": {
+        "source": "doc1.md",
+        "page": 5
+      }
+    },
+    {
+      "id": "c12",
+      "question": "Question 12 about the corpus?",
+      "expected_source": {
+        "source": "doc2.md",
+        "page": 6
+      }
+    },
+    {
+      "id": "c13",
+      "question": "Question 13 about the corpus?",
+      "expected_source": {
+        "source": "doc3.md",
+        "page": 7
+      }
+    },
+    {
+      "id": "c14",
+      "question": "Question 14 about the corpus?",
+      "expected_source": {
+        "source": "doc4.md",
+        "page": 1
+      }
+    },
+    {
+      "id": "c15",
+      "question": "Question 15 about the corpus?",
+      "expected_source": {
+        "source": "doc0.md",
+        "page": 2
+      }
+    },
+    {
+      "id": "c16",
+      "question": "Question 16 about the corpus?",
+      "expected_source": {
+        "source": "doc1.md",
+        "page": 3
+      }
+    },
+    {
+      "id": "c17",
+      "question": "Question 17 about the corpus?",
+      "expected_source": {
+        "source": "doc2.md",
+        "page": 4
+      }
+    },
+    {
+      "id": "c18",
+      "question": "Question 18 about the corpus?",
+      "expected_source": {
+        "source": "doc3.md",
+        "page": 5
+      }
+    },
+    {
+      "id": "c19",
+      "question": "Question 19 about the corpus?",
+      "expected_source": {
+        "source": "doc4.md",
+        "page": 6
+      }
+    }
+  ]
+}

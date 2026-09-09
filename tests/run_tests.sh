@@ -107,6 +107,15 @@ cases = [
     ("text-embedding-004", "models/gemini-embedding-001", False),
 ]
 ok = True
+# Every model id the Phase 3/4 task pages use must survive every pattern, now
+# and after any future retirement is added. gemini-3.6-flash in particular: if
+# it were ever matched, every phase4/task4 submission would fail on correct work.
+for mid in m.CURRENT_MODELS:
+    hits = ([k for k, (rx, _) in m.DEAD_RE.items() if rx.search(mid)]
+            + [k for k, (rx, _) in m.OFF_RE.items() if rx.search(mid)])
+    print(f"      {mid:<30} {'clean' if not hits else 'FLAGGED by ' + str(hits)}")
+    if hits:
+        ok = False
 for key, text, expected in cases:
     rx, _why = m.DEAD_RE[key]
     got = bool(rx.search(text))
@@ -148,6 +157,50 @@ echo "== phase2/task5 debug task =="
 assert_contains task5 "phase2/task5 → phase2/task5_rag_debug"
 assert_contains task5 "bugs.md:"           # the notes check ran and passed
 
+echo
+echo "== phase 3 and 4: one passing and one failing fixture per task =="
+run_case p3t1_pass  p3t1_pass  phase3/task1-raw-react-agent       0
+run_case p3t1_fail  p3t1_fail  phase3/task1-raw-react-agent       1
+run_case p3t2_pass  p3t2_pass  phase3/task2-tool-best-practices   0
+run_case p3t2_fail  p3t2_fail  phase3/task2-tool-best-practices   1
+run_case p3t3_pass  p3t3_pass  phase3/task3-research-agent        0
+run_case p3t3_fail  p3t3_fail  phase3/task3-research-agent        1
+run_case p3t4_pass  p3t4_pass  phase3/task4-code-review-agent     0
+run_case p3t4_fail  p3t4_fail  phase3/task4-code-review-agent     1
+run_case p3t5_pass  p3t5_pass  phase3/task5-multi-agent-pipeline  0
+run_case p3t5_fail  p3t5_fail  phase3/task5-multi-agent-pipeline  1
+run_case p3t6_pass  p3t6_pass  phase3/task6-hitl-pipeline         0
+run_case p3t6_fail  p3t6_fail  phase3/task6-hitl-pipeline         1
+run_case p4t1_pass  p4t1_pass  phase4/task1-sse-streaming         0
+run_case p4t1_fail  p4t1_fail  phase4/task1-sse-streaming         1
+run_case p4t2_pass  p4t2_pass  phase4/task2-trace-inefficiency    0
+run_case p4t2_fail  p4t2_fail  phase4/task2-trace-inefficiency    1
+run_case p4t3_pass  p4t3_pass  phase4/task3-rag-failure-handling  0
+run_case p4t3_fail  p4t3_fail  phase4/task3-rag-failure-handling  1
+run_case p4t4_pass  p4t4_pass  phase4/task4-eval-pipeline         0
+run_case p4t4_fail  p4t4_fail  phase4/task4-eval-pipeline         1
+run_case p4t6_pass  p4t6_pass  phase4/task6-production-service    0
+run_case p4t6_fail  p4t6_fail  phase4/task6-production-service    1
+
+echo
+echo "== the behaviours those fixtures exist to pin =="
+# ast parsing, not regex: a commented-out import and a string literal naming
+# the package must both pass, while a real import must fail with file:line.
+assert_contains p3t1_fail "imports 'langchain.agents'"
+assert_contains p3t1_pass "No import of: langchain, langgraph."
+# A prose-only task has no .py at all; that is a pass, not a skip or an error.
+assert_contains p4t2_pass "No Python files in this task"
+# Nested required paths resolve (sample_code/buggy_code.py).
+assert_contains p3t4_pass "All 4 expected files present."
+# Phase 4 nests expected_source as an object; the Phase 2 validator would
+# have rejected it, so this dataset gets its own shape check.
+assert_contains p4t4_pass "shape valid"
+# Required-files names what is absent, in the row students actually read.
+assert_contains p3t2_fail "Missing: README.md"
+# The golden-set rejection names the shape it received, so a student who
+# grouped cases by category can see which keys they actually produced.
+run_case p2t4_badshape p2t4_badshape phase2/task4-rag-qa-bot 1
+assert_contains p2t4_badshape "found object with keys: happy_path, edge_cases, out_of_scope, ambiguous"
 echo
 echo "-------- $pass passed, $fail failed --------"
 [ "$fail" -eq 0 ] || exit 1

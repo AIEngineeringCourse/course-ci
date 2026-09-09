@@ -1,0 +1,6 @@
+{
+  "happy_path": [{"question": "q1"}],
+  "edge_cases": [],
+  "out_of_scope": [],
+  "ambiguous": []
+}

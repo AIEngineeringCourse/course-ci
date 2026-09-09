@@ -11,6 +11,7 @@ Writes ci_result.json for the Notion write-back step.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -49,6 +50,17 @@ OFF_COURSE = {
     "dated model alias": (r"claude-[a-z]+-\d(?:-\d)?-\d{8}",
                           "use the bare alias, e.g. claude-haiku-4-5"),
 }
+
+# Model ids the Phase 3 and 4 task pages use. check.py has no allow-list:
+# anything not matched above passes, so these need no entry. They are listed
+# here as the contract, and tests/run_tests.sh asserts none of them is ever
+# matched by a present or future retirement pattern:
+#   claude-haiku-4-5             Ph3 T1,T2,T4,T5; Ph4 T4,T5,T6
+#   claude-sonnet-4-6            Ph3 T5 production note; Ph4 T5 routing
+#   gemini-3.6-flash             Ph4 T4 judge
+#   models/gemini-embedding-001  Phase 2 ingestion, reused in Ph4 T3,T4,T6
+CURRENT_MODELS = ("claude-haiku-4-5", "claude-sonnet-4-6", "gemini-3.6-flash",
+                  "models/gemini-embedding-001")
 
 DEAD_RE = {k: (re.compile(p), why) for k, (p, why) in DEAD_MODELS.items()}
 OFF_RE = {k: (re.compile(p), why) for k, (p, why) in OFF_COURSE.items()}
@@ -177,8 +189,12 @@ def check_structure(task_dir: Path, required: list[str]) -> Result:
         if not glob(str(task_dir / pattern), recursive=True):
             missing.append(pattern)
     if missing:
+        # Name them in the summary line: the table row is what students read,
+        # and "expected per the task page" told them nothing about which of
+        # nine files was absent.
         return Result("Required files", "fail",
-                      f"Expected in {task_dir.name}/ per the task page.",
+                      f"Missing: {', '.join(missing)} — expected in "
+                      f"{task_dir.name}/ per the task page.",
                       [f"missing: {m}" for m in missing])
     return Result("Required files", "pass", f"All {len(required)} expected files present.")
 
@@ -187,7 +203,11 @@ def check_compile(task_dir: Path) -> Result:
     py = [str(p) for p in task_dir.rglob("*.py")
           if not any(part in SKIP_DIRS for part in p.parts)]
     if not py:
-        return Result("Python syntax", "skip", "No .py files found.")
+        # Some tasks submit only prose (Ph4 Task 2). Nothing to compile is a
+        # pass, not a skip: a missing .py that the task did require is already
+        # reported by the required-files check.
+        return Result("Python syntax", "pass",
+                      "No Python files in this task — nothing to compile.")
     proc = subprocess.run([sys.executable, "-m", "py_compile", *py],
                           capture_output=True, text=True)
     if proc.returncode != 0:
@@ -265,8 +285,15 @@ def check_golden_set(task_dir: Path, spec: dict) -> Result:
 
     cases = data.get("cases", data) if isinstance(data, dict) else data
     if not isinstance(cases, list):
+        # Describe the rejection, not just the requirement. A student who
+        # grouped cases by category sees which keys they actually produced.
+        if isinstance(data, dict):
+            got = f"found object with keys: {', '.join(list(data)[:12]) or '(none)'}"
+        else:
+            got = f"found {type(data).__name__}"
         return Result("Golden set", "fail",
-                      f"{fname} must be a list of cases, or an object with a 'cases' list.")
+                      f"{fname} must be a list of cases, or an object with a "
+                      f"'cases' list; {got}.")
 
     problems: list[str] = []
     min_cases = spec.get("min_cases", 15)
@@ -319,6 +346,106 @@ def check_golden_set(task_dir: Path, spec: dict) -> Result:
 
 
 # --------------------------------------------------------------------------- #
+def check_forbidden_imports(task_dir: Path, modules: list[str]) -> Result:
+    """Fail if any listed module is imported anywhere in the task.
+
+    Parsed with `ast`, not matched with a regex, because source text cannot
+    distinguish a real import from a commented-out one or the module name
+    appearing inside a string literal. Both must pass.
+    """
+    if not modules:
+        return Result("Forbidden imports", "skip", "")
+    banned = {m.lower() for m in modules}
+    hits: list[str] = []
+    unparsed: list[str] = []
+
+    for p in sorted(task_dir.rglob("*.py")):
+        if any(part in SKIP_DIRS for part in p.parts):
+            continue
+        rel = p.relative_to(task_dir)
+        try:
+            tree = ast.parse(read_text(p), filename=str(p))
+        except SyntaxError:
+            # check_compile already reports this; do not double-fail here.
+            unparsed.append(str(rel))
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                # A relative import (level > 0) is the student's own module.
+                names = [node.module] if node.module and not node.level else []
+            else:
+                continue
+            for name in names:
+                if name.split(".")[0].lower() in banned:
+                    hits.append(f"{rel}:{node.lineno} — imports '{name}'")
+
+    listed = ", ".join(sorted(banned))
+    if hits:
+        return Result("Forbidden imports", "fail",
+                      f"This task must be built without: {listed}.", hits)
+    detail = f"No import of: {listed}."
+    if unparsed:
+        detail += f" ({len(unparsed)} file(s) unparsable — see Python syntax)"
+    return Result("Forbidden imports", "pass", detail)
+
+
+def check_json_shape(task_dir: Path, spec: dict) -> Result:
+    """Structure only: types and presence of keys, never the content of values.
+
+    Deliberately separate from check_golden_set. The Phase 4 dataset nests
+    `expected_source` as an object ({"source": ..., "page": ...}) while the
+    Phase 2 golden set uses a plain filename string, so reusing that validator
+    would reject correct Phase 4 work.
+    """
+    fname = spec.get("file", "")
+    matches = glob(str(task_dir / fname)) if fname else []
+    if not matches:
+        return Result("Dataset shape", "fail", f"{fname} not found.")
+    try:
+        data = json.loads(read_text(Path(matches[0])))
+    except json.JSONDecodeError as e:
+        return Result("Dataset shape", "fail", f"{fname} is not valid JSON: {e}")
+
+    key = spec.get("cases_key", "cases")
+    if not isinstance(data, dict):
+        return Result("Dataset shape", "fail",
+                      f"{fname} must be an object with a '{key}' list; "
+                      f"found {type(data).__name__}.")
+    cases = data.get(key)
+    if not isinstance(cases, list):
+        return Result("Dataset shape", "fail",
+                      f"{fname} needs a '{key}' list; found object with keys: "
+                      f"{', '.join(list(data)[:12]) or '(none)'}.")
+
+    problems: list[str] = []
+    min_cases = spec.get("min_cases", 0)
+    if len(cases) < min_cases:
+        problems.append(f"{len(cases)} case(s); task requires at least {min_cases}")
+
+    for idx, case in enumerate(cases):
+        cid = case.get("id", f"case {idx}") if isinstance(case, dict) else f"case {idx}"
+        if not isinstance(case, dict):
+            problems.append(f"{cid} is not an object")
+            continue
+        for f in spec.get("string_fields", []):
+            v = case.get(f)
+            if not isinstance(v, str) or not v.strip():
+                problems.append(f"{cid}: '{f}' must be a non-empty string")
+        for f in spec.get("object_fields", []):
+            if f not in case:
+                problems.append(f"{cid}: '{f}' is required")
+            elif not isinstance(case[f], dict):
+                problems.append(f"{cid}: '{f}' must be an object, found "
+                                f"{type(case[f]).__name__}")
+
+    if problems:
+        return Result("Dataset shape", "fail",
+                      f"{len(cases)} case(s) in {fname}", problems[:20])
+    return Result("Dataset shape", "pass", f"{len(cases)} case(s), shape valid.")
+
+
 def detect_task(branch: str) -> str | None:
     m = re.match(r"(phase[1-5])/(task\d+)", branch.strip().lower())
     return f"{m.group(1)}/{m.group(2)}" if m else None
@@ -424,8 +551,13 @@ def main() -> int:
         results.append(check_lint(task_dir))
         if spec.get("notes"):
             results.append(check_notes(task_dir, spec["notes"]))
+        if spec.get("forbidden_imports"):
+            results.append(check_forbidden_imports(task_dir,
+                                                   spec["forbidden_imports"]))
         if spec.get("golden_set"):
             results.append(check_golden_set(task_dir, spec["golden_set"]))
+        if spec.get("json_shape"):
+            results.append(check_json_shape(task_dir, spec["json_shape"]))
 
     summary = render(results, task_key, args.branch or "(unknown)", task_name, task_dir, root)
 

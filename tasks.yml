@@ -120,26 +120,69 @@ tasks:
       - "README.md"
 
   # ----------------------------------------------------------------- Phase 3
-  # TODO(Misha): add entries as Phase 3 tasks get submission trees.
+  # Verified against each task page, 2026-09-09. Directories are repo-relative.
+  # No word-count rules here or in Phase 4: minimums exist on Ph1 T4 and Ph2 T5
+  # because thin explanation is the specific failure mode of a debug task.
+  # Phase 3/4 analyses are open-ended, where a word floor only rewards padding.
+  phase3/task1:
+    name: "Ph3 Task 1 — Raw ReAct agent"
+    dir_glob: "phase3/task1_raw_react_agent"
+    required: ["agent.py", "README.md"]
+    # The task page states "No LangChain imports anywhere" as an acceptance
+    # criterion: the point is to build the loop on the raw SDK.
+    forbidden_imports: ["langchain", "langgraph"]
+
+  phase3/task2:
+    name: "Ph3 Task 2 — Tool best practices"
+    dir_glob: "phase3/task2_tool_best_practices"
+    required: ["agent.py", "analysis.md", "README.md"]
+
+  phase3/task3:
+    name: "Ph3 Task 3 — Research agent"
+    dir_glob: "phase3/task3_research_agent"
+    required: ["agent.py", "graph.png", "README.md"]
+
+  phase3/task4:
+    name: "Ph3 Task 4 — Code review agent"
+    dir_glob: "phase3/task4_code_review_agent"
+    required:
+      - "agent.py"
+      - "sample_code/buggy_code.py"     # nested path; glob handles the separator
+      - "graph.png"
+      - "README.md"
+
+  phase3/task5:
+    name: "Ph3 Task 5 — Multi-agent pipeline"
+    dir_glob: "phase3/task5_multi_agent_pipeline"
+    required: ["pipeline.py", "graph.png", "analysis.md", "README.md"]
+
+  phase3/task6:
+    name: "Ph3 Task 6 — Human-in-the-loop pipeline"
+    dir_glob: "phase3/task6_hitl_pipeline"
+    required: ["pipeline.py", "graph.png", "analysis.md", "README.md"]
 
   # ----------------------------------------------------------------- Phase 4
   phase4/task1:
     name: "Ph4 Task 1 — SSE streaming endpoint"
-    required: ["*.py", "README.md"]
+    dir_glob: "phase4/task1_sse_streaming"
+    # viewer.html is optional per the task page and must not be required.
+    required: ["server.py", "client.py", "README.md"]
 
   phase4/task2:
     name: "Ph4 Task 2 — Trace an inefficiency"
-    required: ["*.md"]
-    notes:
-      file: "*.md"
-      min_words: 250
+    dir_glob: "phase4/task2_trace_inefficiency"
+    # Prose only: this task submits no Python. check_compile reports "nothing to
+    # compile" as a pass, and ruff over a directory with no .py finds nothing.
+    required: ["analysis.md", "trace_links.md", "README.md"]
 
   phase4/task3:
-    name: "Ph4 Task 3 — Error handling and backoff"
-    required: ["*.py", "README.md"]
+    name: "Ph4 Task 3 — RAG failure handling"
+    dir_glob: "phase4/task3_rag_failure_handling"
+    required: ["rag_resilient.py", "test_failures.py", "analysis.md", "README.md"]
 
   phase4/task4:
     name: "Ph4 Task 4 — Evaluation pipeline"
+    dir_glob: "phase4/task4_eval_pipeline"
     required:
       - "audit.md"
       - "golden_dataset_v2.json"
@@ -150,32 +193,34 @@ tasks:
       - "regression_report.md"
       - "analysis.md"
       - "README.md"
-    notes:
-      file: "analysis.md"
-      min_words: 600
-    golden_set:
+    # Not `golden_set`: that validator expects expected_source to be a filename
+    # string, and here it is an object {"source": ..., "page": ...}. Shape only.
+    json_shape:
       file: "golden_dataset_v2.json"
+      cases_key: "cases"
       min_cases: 20
-      min_per_category:
-        happy_path: 8
-        edge_case: 5
-        out_of_scope: 4
-        ambiguous: 3
+      string_fields: ["question"]
+      object_fields: ["expected_source"]
 
-  phase4/task5:
-    name: "Ph4 Task 5 — Cost tracking and model routing"
-    required:
-      - "cost_tracker.py"
-      - "routing.py"
-      - "caching.py"
-      - "tasks.json"
-      - "cost_report.md"
-      - "analysis.md"
-      - "README.md"
-    notes:
-      file: "analysis.md"
-      min_words: 500
+  # TODO(Misha): phase4/task5 (cost optimization) is EXCLUDED until the
+  # duplicate draft of the task page is deleted. Two drafts disagree on the
+  # required file set, so any manifest entry would be a guess. Its tasks.json
+  # shape check is blocked on the same thing. Restore with:
+  #   dir_glob: phase4/task5_cost_optimization
+  #   required: cost_tracker.py, agent_instrumented.py, routing.py, caching.py,
+  #             tasks.json, cost_report.md, analysis.md, README.md
+  # Until then the task falls through to the automatic checks only.
 
   phase4/task6:
-    name: "Ph4 Task 6 — End-to-end capstone"
-    required: ["*.py", "README.md"]
+    name: "Ph4 Task 6 — Production service"
+    dir_glob: "phase4/task6_production_service"
+    required:
+      - "app.py"
+      - "service.py"
+      - "resilience.py"
+      - "cost.py"
+      - "eval_gate.py"
+      - "dashboard.html"
+      - "analysis.md"
+      - ".gitignore"
+      - "README.md"
